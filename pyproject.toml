@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "personal-tideway"
+dynamic = ["version"]
+description = "Personal Tideway manager and CLI"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+authors = [
+    { name = "Personal Tideway Contributors" }
+]
+dependencies = [
+    "pyyaml>=6.0",
+    "tomlkit>=0.13.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+ptw = "personal_tideway.cli.main:main"
+ptw-mcp-run = "personal_tideway.cli.mcp_runner:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "personal_tideway.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
