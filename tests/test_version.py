@@ -7,7 +7,7 @@ from personal_tideway.cli.main import build_parser
 
 
 def test_development_version() -> None:
-    assert __version__ == "0.1.0.dev1"
+    assert __version__ == "0.1.0.dev2"
 
 
 def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:

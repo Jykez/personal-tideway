@@ -8,6 +8,18 @@ from personal_tideway.config import PersonalTidewayConfig
 from personal_tideway.core.workspace import init_workspace
 
 
+@pytest.fixture(autouse=True)
+def prevent_real_client_probes(monkeypatch: pytest.MonkeyPatch):
+    """Keep the test suite from resolving or executing real Codex or AGY installations from the host."""
+    monkeypatch.setattr("personal_tideway.core.discovery.shutil.which", lambda _name: None)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+
+    def guarded_runner(cmd: list[str], timeout: float) -> tuple[int, str, str]:
+        raise AssertionError(f"Security violation: unexpected host process execution in test: {cmd}")
+
+    monkeypatch.setattr("personal_tideway.core.discovery._default_version_runner", guarded_runner)
+
+
 @pytest.fixture
 def isolated_dirs(tmp_path: Path):
     """Provide isolated paths for PERSONAL_TIDEWAY_HOME, CODEX_HOME, and GEMINI_HOME."""

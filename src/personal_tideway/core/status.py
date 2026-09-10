@@ -10,6 +10,12 @@ from personal_tideway.adapters.codex import CodexAdapter
 from personal_tideway.config import PersonalTidewayConfig
 from personal_tideway.constants import CLIENT_AGY, CLIENT_CODEX
 from personal_tideway.core.conflicts import load_all_conflicts
+from personal_tideway.core.discovery import (
+    discover_agy,
+    discover_codex,
+    format_client_agy_text,
+    format_client_codex_text,
+)
 from personal_tideway.core.mcp import load_all_mcp_servers
 from personal_tideway.core.memory import list_memories
 from personal_tideway.core.rules import get_composed_rules_for_client
@@ -22,11 +28,24 @@ from personal_tideway.utils import calculate_hash
 
 def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
     """Collect complete, scriptable workspace status."""
+    codex_diag = discover_codex(
+        codex_home=cfg.codex_home,
+        canonical_user_skills=cfg.canonical_user_skills,
+    )
+    agy_diag = discover_agy(
+        gemini_home=cfg.gemini_home,
+        customization_root=cfg.agy_customization_root,
+        portable_skills_alias=cfg.canonical_user_skills,
+    )
     initialized = cfg.is_initialized()
     if not initialized:
         return {
             "initialized": False,
             "home": str(cfg.home),
+            "clients": {
+                "codex": codex_diag.to_dict(),
+                "agy": agy_diag.to_dict(),
+            },
             "pending_changes": [],
             "conflicts": [],
             "deletions": [],
@@ -195,6 +214,10 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
     return {
         "initialized": True,
         "home": str(cfg.home),
+        "clients": {
+            "codex": codex_diag.to_dict(),
+            "agy": agy_diag.to_dict(),
+        },
         "pending_changes": pending_changes,
         "conflicts": conflict_list,
         "deletions": deletions,
@@ -211,7 +234,18 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
 def format_status_text(status: dict[str, Any]) -> str:
     """Format status dictionary as a clean, human-readable terminal report."""
     if not status.get("initialized"):
-        return f"Personal Tideway workspace is NOT initialized at {status.get('home')}.\nRun 'ptw init' to create workspace."
+        lines = [
+            f"Personal Tideway workspace is NOT initialized at {status.get('home')}.",
+            "Run 'ptw init' to create workspace.",
+        ]
+        if "clients" in status:
+            if "codex" in status["clients"]:
+                lines.append("")
+                lines.append(format_client_codex_text(status["clients"]["codex"]))
+            if "agy" in status["clients"]:
+                lines.append("")
+                lines.append(format_client_agy_text(status["clients"]["agy"]))
+        return "\n".join(lines)
 
     lines = [
         "=== Personal Tideway Status ===",
@@ -267,5 +301,13 @@ def format_status_text(status: dict[str, Any]) -> str:
             lines.append(f"  - {s['name']}: {status_str} (Codex: {s['in_codex']}, agy: {s['in_agy']})")
     else:
         lines.append("  No shared portable MCP servers defined.")
+
+    if "clients" in status:
+        if "codex" in status["clients"]:
+            lines.append("")
+            lines.append(format_client_codex_text(status["clients"]["codex"]))
+        if "agy" in status["clients"]:
+            lines.append("")
+            lines.append(format_client_agy_text(status["clients"]["agy"]))
 
     return "\n".join(lines)

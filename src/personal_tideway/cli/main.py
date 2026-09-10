@@ -20,6 +20,10 @@ from personal_tideway.constants import (
     TRANSPORT_STDIO,
 )
 from personal_tideway.core.conflicts import load_all_conflicts
+from personal_tideway.core.external_registration import (
+    confirm_external_project,
+    propose_external_project,
+)
 from personal_tideway.core.mcp import (
     load_all_mcp_servers,
     load_mcp_server,
@@ -28,6 +32,13 @@ from personal_tideway.core.mcp import (
 )
 from personal_tideway.core.memory import add_memory, list_memories, search_memories
 from personal_tideway.core.project import init_project
+from personal_tideway.core.project_resolver import (
+    probe_git,
+    register_directory,
+    resolve_or_register_git,
+    resolve_project,
+)
+from personal_tideway.core.registry import load_registry
 from personal_tideway.core.skills import (
     create_skill,
     find_skill,
@@ -36,6 +47,7 @@ from personal_tideway.core.skills import (
     share_skill,
     unlink_skill,
 )
+from personal_tideway.core.discovery import format_doctor_text, run_doctor
 from personal_tideway.core.status import format_status_text, get_workspace_status
 from personal_tideway.core.sync import resolve_conflict, sync_workspace
 from personal_tideway.core.workspace import init_workspace
@@ -60,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--home", help="Path to Personal Tideway home directory (overrides PERSONAL_TIDEWAY_HOME)")
     parser.add_argument("--codex-home", help="Path to Codex home directory (overrides CODEX_HOME)")
     parser.add_argument("--gemini-home", "--agy-home", dest="gemini_home", help="Path to agy home directory")
+    parser.add_argument("--project", dest="selected_project", help="Explicit project selection (overrides PERSONAL_TIDEWAY_PROJECT)")
 
     subparsers = parser.add_subparsers(dest="top_command", required=True)
 
@@ -165,6 +178,48 @@ def build_parser() -> argparse.ArgumentParser:
     p_proj_init.add_argument("--template", help="Name of template from Personal Tideway templates directory")
     p_proj_init.add_argument("--force", action="store_true", help="Overwrite existing .personal-tideway.yaml manifest")
     p_proj_init.add_argument("--dry-run", action="store_true", help="Preview without writing manifest")
+
+    p_proj_list = proj_subs.add_parser("list", help="List registered projects")
+    p_proj_list.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    p_proj_show = proj_subs.add_parser("show", help="Show details of a registered project")
+    p_proj_show.add_argument("project_token", metavar="PROJECT", help="Project ID, slug, or alias")
+    p_proj_show.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    p_proj_resolve = proj_subs.add_parser("resolve", help="Resolve project for path")
+    p_proj_resolve.add_argument("path", nargs="?", default=None, help="Target path to resolve (default: current working directory)")
+    p_proj_resolve.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    p_proj_add_external = proj_subs.add_parser(
+        "add-external",
+        help="Propose and confirm creation of an external project",
+        description="Explicitly propose and confirm creation of an external project (infrastructure, service, or device without a local path). Invoking this command confirms project creation.",
+    )
+    p_proj_add_external.add_argument("name", metavar="NAME", help="Display name of the external project")
+    p_proj_add_external.add_argument(
+        "--alias",
+        action="append",
+        dest="aliases",
+        default=[],
+        help="Repeatable alias for the external project (can be specified multiple times)",
+    )
+
+    p_proj_add = proj_subs.add_parser(
+        "add",
+        help="Add a Git repository or local directory project",
+        description="Add a project to Personal Tideway by path (auto-detects Git repository vs plain directory, or explicit --kind).",
+    )
+    p_proj_add.add_argument("path", nargs="?", default=".", help="Path to project directory (default: current dir)")
+    p_proj_add.add_argument("--name", help="Display name for the project")
+    p_proj_add.add_argument(
+        "--kind",
+        choices=["git", "directory"],
+        help="Explicit project kind ('git' or 'directory')",
+    )
+
+    # 9. doctor
+    p_doctor = subparsers.add_parser("doctor", help="Run system and client diagnostics")
+    p_doctor.add_argument("--json", action="store_true", help="Output diagnostic report in JSON format")
 
     return parser
 
@@ -363,6 +418,225 @@ def handle_memory(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
     return ExitCode.SUCCESS
 
 
+def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
+    """Handler for 'ptw project' subcommands."""
+    if args.project_command == "init":
+        target_file = init_project(
+            cfg,
+            target_path=args.path,
+            template_name=args.template,
+            force=args.force,
+            dry_run=args.dry_run,
+        )
+        prefix = "[DRY RUN] " if args.dry_run else ""
+        print(f"{prefix}Initialized project manifest at {target_file}")
+        return ExitCode.SUCCESS
+
+    elif args.project_command == "list":
+        registry = load_registry(cfg.projects_yaml)
+        if args.json:
+            print(json.dumps(registry.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            if not registry.projects:
+                print("No projects registered.")
+                return ExitCode.SUCCESS
+            print(f"{'SLUG':<20} {'KIND':<12} {'NAME':<25} {'ID'}")
+            print("-" * 80)
+            for p in registry.projects:
+                print(f"{p.slug:<20} {p.kind:<12} {p.display_name:<25} {p.id}")
+        return ExitCode.SUCCESS
+
+    elif args.project_command == "show":
+        registry = load_registry(cfg.projects_yaml)
+        token = args.project_token.strip() if args.project_token else ""
+        project = registry.get(token) if token else None
+        if project is None:
+            raise ValidationError(f"Project '{args.project_token}' not found in registry.")
+        if args.json:
+            print(json.dumps(project.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            print(f"ID:           {project.id}")
+            print(f"Slug:         {project.slug}")
+            print(f"Display Name: {project.display_name}")
+            print(f"Kind:         {project.kind}")
+            aliases_str = ", ".join(project.aliases) if project.aliases else "(none)"
+            print(f"Aliases:      {aliases_str}")
+            print("Bindings:")
+            if project.bindings.paths:
+                print("  Paths:")
+                for p in project.bindings.paths:
+                    print(f"    - {p}")
+            else:
+                print("  Paths: (none)")
+            if project.bindings.git_common_dirs:
+                print("  Git Common Dirs:")
+                for g in project.bindings.git_common_dirs:
+                    print(f"    - {g}")
+            else:
+                print("  Git Common Dirs: (none)")
+            if project.bindings.git_remotes:
+                print("  Git Remotes:")
+                for r in project.bindings.git_remotes:
+                    print(f"    - {r}")
+            else:
+                print("  Git Remotes: (none)")
+        return ExitCode.SUCCESS
+
+    elif args.project_command == "resolve":
+        registry = load_registry(cfg.projects_yaml)
+        target_path = Path(args.path).expanduser().resolve() if args.path else Path.cwd().resolve()
+        res = resolve_project(
+            registry=registry,
+            path=target_path,
+            explicit_project=cfg.project,
+        )
+        if args.json:
+            print(json.dumps(res.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            print(f"Status:   {res.status}")
+            if res.project_id:
+                print(f"Project:  {res.project_id}")
+                if res.project:
+                    print(f"Slug:     {res.project.slug}")
+                    print(f"Name:     {res.project.display_name}")
+            if res.evidence:
+                print(f"Evidence: {', '.join(res.evidence)}")
+            else:
+                print("Evidence: (none)")
+            if res.status == "candidate" and res.candidate_metadata:
+                meta = res.candidate_metadata
+                if meta.get("root"):
+                    print(f"Root:     {meta['root']}")
+                if meta.get("suggested_slug"):
+                    print(f"Suggested Slug: {meta['suggested_slug']}")
+            if res.status == "ambiguous" and res.ambiguous_project_ids:
+                print(f"Ambiguous Project IDs: {', '.join(res.ambiguous_project_ids)}")
+        return ExitCode.SUCCESS
+
+    elif args.project_command == "add-external":
+        if not cfg.is_initialized():
+            raise ConfigError(
+                f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
+            )
+        registry = load_registry(cfg.projects_yaml)
+        proposal_res = propose_external_project(
+            args.name,
+            aliases=list(args.aliases) if args.aliases else None,
+            registry=registry,
+            cfg=cfg,
+        )
+        confirm_res = confirm_external_project(
+            proposal_res,
+            confirmed=True,
+            cfg=cfg,
+            registry=registry,
+        )
+        rec = confirm_res.record or confirm_res.project
+        if rec is None:
+            raise ValidationError("Failed to confirm and persist external project.")
+        print(f"Added external project: {rec.display_name} ({rec.slug}) [{rec.id}]")
+        return ExitCode.SUCCESS
+
+    elif args.project_command == "add":
+        if not cfg.is_initialized():
+            raise ConfigError(
+                f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
+            )
+        raw_path = args.path if args.path else "."
+        try:
+            target_path = Path(raw_path).expanduser().resolve()
+        except Exception:
+            raise ValidationError("Project path could not be resolved safely.")
+
+        if not target_path.exists():
+            raise ValidationError(f"Path '{target_path}' does not exist.")
+        if not target_path.is_dir():
+            raise ValidationError(f"Path '{target_path}' is not a directory.")
+
+        display_name: str | None = None
+        if args.name is not None:
+            if not isinstance(args.name, str) or not args.name.strip():
+                raise ValidationError("Project name must be a non-empty string when provided.")
+            display_name = args.name.strip()
+
+        # Probe Git identity exactly once
+        git_probe = probe_git(target_path)
+        if git_probe.status not in ("git", "not_git"):
+            raise ValidationError(
+                f"Git probe failed or status uncertain for '{target_path}'."
+            )
+
+        registry = load_registry(cfg.projects_yaml)
+
+        kind = args.kind
+        if kind == "directory":
+            if git_probe.is_git:
+                raise ValidationError(
+                    f"Path '{target_path}' is inside a Git repository. Directory registration rejected."
+                )
+            res = register_directory(
+                path=target_path,
+                cfg=cfg,
+                registry=registry,
+                display_name=display_name,
+                probe=git_probe,
+            )
+        elif kind == "git":
+            if not git_probe.is_git:
+                raise ValidationError(
+                    f"Path '{target_path}' is not a Git repository. Git project registration rejected."
+                )
+            res = resolve_or_register_git(
+                path=target_path,
+                cfg=cfg,
+                registry=registry,
+                auto_register_git=True,
+                display_name=display_name,
+                reconcile_bindings=True,
+                probe=git_probe,
+            )
+        else:
+            if git_probe.is_git:
+                res = resolve_or_register_git(
+                    path=target_path,
+                    cfg=cfg,
+                    registry=registry,
+                    auto_register_git=True,
+                    display_name=display_name,
+                    reconcile_bindings=True,
+                    probe=git_probe,
+                )
+            elif git_probe.status == "not_git":
+                res = register_directory(
+                    path=target_path,
+                    cfg=cfg,
+                    registry=registry,
+                    display_name=display_name,
+                    probe=git_probe,
+                )
+            else:
+                raise ValidationError(
+                    f"Git probe failed or status uncertain for '{target_path}'."
+                )
+
+        if res.status != "resolved" or res.requires_confirmation or res.project is None:
+            raise ValidationError(
+                f"Project registration for '{target_path}' could not be completed safely."
+            )
+
+        rec = res.project
+        if getattr(res, "created", False) or "auto-registered" in res.evidence:
+            print(f"Registered new {rec.kind} project: {rec.display_name} ({rec.slug}) [{rec.id}]")
+        elif getattr(res, "bindings_changed", False):
+            print(f"Updated {rec.kind} project bindings: {rec.display_name} ({rec.slug}) [{rec.id}]")
+        else:
+            print(f"Project already registered: {rec.display_name} ({rec.slug}) [{rec.id}]")
+
+        return ExitCode.SUCCESS
+
+    return ExitCode.SUCCESS
+
+
 def preprocess_cli_args(argv: Sequence[str] | None) -> list[str]:
     """Preprocess CLI arguments to cleanly handle flags beginning with '-' in --arg and --args."""
     if argv is None:
@@ -420,6 +694,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             home=args.home,
             codex_home=args.codex_home,
             gemini_home=args.gemini_home,
+            project=getattr(args, "selected_project", None),
         )
 
         if args.top_command == "init":
@@ -427,8 +702,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Initialized Personal Tideway at {cfg.home}")
             return ExitCode.SUCCESS
 
-        # For commands other than init and project, verify workspace is initialized
-        if args.top_command not in ("init", "project") and not cfg.is_initialized():
+        # For commands other than init, project, status, and doctor, verify workspace is initialized
+        if args.top_command not in ("init", "project", "status", "doctor") and not cfg.is_initialized():
             raise ConfigError(
                 f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
             )
@@ -450,6 +725,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(format_status_text(status))
             return ExitCode.SUCCESS
 
+        elif args.top_command == "doctor":
+            doc_report = run_doctor(
+                codex_home=cfg.codex_home,
+                canonical_user_skills=cfg.canonical_user_skills,
+                gemini_home=cfg.gemini_home,
+                customization_root=cfg.agy_customization_root,
+            )
+            if args.json:
+                print(json.dumps(doc_report, indent=2, sort_keys=True))
+            else:
+                print(format_doctor_text(doc_report))
+            if doc_report.get("status") == "error":
+                return ExitCode.RUNTIME_PROBE_ERROR
+            return ExitCode.SUCCESS
+
         elif args.top_command == "resolve":
             ok, msg = resolve_conflict(cfg, args.object, take=args.take, dry_run=args.dry_run)
             prefix = "[DRY RUN] " if args.dry_run else ""
@@ -466,17 +756,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return handle_memory(cfg, args)
 
         elif args.top_command == "project":
-            if args.project_command == "init":
-                target_file = init_project(
-                    cfg,
-                    target_path=args.path,
-                    template_name=args.template,
-                    force=args.force,
-                    dry_run=args.dry_run,
-                )
-                prefix = "[DRY RUN] " if args.dry_run else ""
-                print(f"{prefix}Initialized project manifest at {target_file}")
-                return ExitCode.SUCCESS
+            return handle_project(cfg, args)
 
     except PersonalTidewayError as e:
         sys.stderr.write(f"Error: {e}\n")

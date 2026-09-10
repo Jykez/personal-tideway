@@ -75,6 +75,7 @@ class PersonalTidewayConfig:
     custom_agy_config: Path | None = None
     custom_agy_rules: Path | None = None
     project: str | None = None
+    auto_register_git: bool = True
 
     # Version
     version: int = SCHEMA_VERSION
@@ -244,14 +245,34 @@ class PersonalTidewayConfig:
         return self.codex_home / "AGENTS.md"
 
     @property
+    def codex_override_rules(self) -> Path:
+        return self.codex_home / "AGENTS.override.md"
+
+    @property
     def codex_skills(self) -> Path:
         return self.codex_home / "skills"
+
+    @property
+    def canonical_user_skills(self) -> Path:
+        return Path.home() / ".agents" / "skills"
 
     @property
     def agy_config(self) -> Path:
         if self.custom_agy_config:
             return self.custom_agy_config
         return self.gemini_home / "config" / "mcp_config.json"
+
+    @property
+    def agy_customization_root(self) -> Path:
+        return self.gemini_home / "config"
+
+    @property
+    def agy_cli_settings(self) -> Path:
+        return self.gemini_home / "antigravity-cli" / "settings.json"
+
+    @property
+    def agy_current_skills(self) -> Path:
+        return self.agy_customization_root / "skills"
 
     @property
     def agy_rules(self) -> Path:
@@ -261,6 +282,14 @@ class PersonalTidewayConfig:
 
     @property
     def agy_skills(self) -> Path:
+        return self.gemini_home / "skills"
+
+    @property
+    def agy_legacy_gemini_md(self) -> Path:
+        return self.gemini_home / "GEMINI.md"
+
+    @property
+    def agy_legacy_skills(self) -> Path:
         return self.gemini_home / "skills"
 
     def validate_owned_path(self, path: str | Path, allow_root: bool = False) -> Path:
@@ -299,6 +328,7 @@ class PersonalTidewayConfig:
             "version": self.version,
             "client_paths": client_paths,
             "skill_link_mode": self.skill_link_mode,
+            "projects": {"auto_register_git": self.auto_register_git},
         }
         if self.project is not None:
             data["project"] = self.project
@@ -316,6 +346,7 @@ class PersonalTidewayConfig:
         agy_rules: str | Path | None = None,
         skill_link_mode: str | None = None,
         project: str | None = None,
+        auto_register_git: bool | None = None,
     ) -> "PersonalTidewayConfig":
         """Resolve all configuration paths following strict precedence.
 
@@ -496,6 +527,25 @@ class PersonalTidewayConfig:
         else:
             resolved_project = None
 
+        # 8. Resolve optional auto_register_git with precedence
+        if auto_register_git is not None:
+            if not isinstance(auto_register_git, bool):
+                raise ValidationError("auto_register_git must be a boolean.")
+            resolved_auto_reg = auto_register_git
+        elif (
+            "projects" in file_data
+            and isinstance(file_data["projects"], dict)
+            and "auto_register_git" in file_data["projects"]
+        ):
+            file_auto_register = file_data["projects"]["auto_register_git"]
+            if not isinstance(file_auto_register, bool):
+                raise ConfigError(f"'projects.auto_register_git' in {yaml_path} must be a boolean.")
+            resolved_auto_reg = file_auto_register
+        elif "projects" in file_data and not isinstance(file_data["projects"], dict):
+            raise ConfigError(f"'projects' in {yaml_path} must be a mapping.")
+        else:
+            resolved_auto_reg = True
+
         return cls(
             home=resolved_home,
             codex_home=resolved_codex_home,
@@ -506,6 +556,7 @@ class PersonalTidewayConfig:
             custom_agy_config=a_config,
             custom_agy_rules=a_rules,
             project=resolved_project,
+            auto_register_git=resolved_auto_reg,
             version=file_version,
             _explicit_codex_home=explicit_codex_home,
             _explicit_gemini_home=explicit_gemini_home,

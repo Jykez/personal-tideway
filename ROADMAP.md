@@ -11,10 +11,10 @@ Tideway будет хранить только текущий этап, реше
 | Status | Milestone | User-visible outcome |
 |---|---|---|
 | Done | Foundation / Фундамент | Versioned configuration, central paths, boundary safety, tests |
-| Next | Client discovery / Обнаружение клиентов | Diagnose current Codex and agy paths without modifying them |
-| Planned | Project identity / Идентификация проектов | Register Git, directory, and external projects outside source trees |
-| Planned | Basic Memory | Isolated installation, health checks, and project reconciliation |
-| Planned | Context loop / Контекстный цикл | Retrieve a bounded context bundle and write concise checkpoints |
+| Done | Client discovery / Обнаружение клиентов | Diagnose current Codex and agy paths without modifying them |
+| Done | Project identity / Идентификация проектов | Register Git, directory, and external projects outside source trees |
+| Done | Basic Memory | Isolated installation, health checks, and project reconciliation |
+| Next | Context loop / Контекстный цикл | Retrieve a bounded context bundle and write concise checkpoints |
 | Planned | Agent integration / Интеграция агентов | Shared continuity rules and lifecycle hooks for Codex and agy |
 | Planned | Projection parity / Общие возможности | Current MCP, rules, and skills projection for both clients |
 | Planned | Migration / Миграция | Plan, dry-run, backup, apply, and rollback from the earlier PAIW workspace |
