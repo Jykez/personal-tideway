@@ -16,7 +16,6 @@ secrets.env
 *.key
 *.log
 .personal-tideway/
-.paiw/
 .basic-memory/
 .codex/
 .gemini/

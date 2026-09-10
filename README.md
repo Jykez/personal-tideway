@@ -45,7 +45,7 @@ Still under construction:
 - bounded context retrieval and concise checkpoint writes;
 - agent lifecycle integration and shared continuity rules for Codex and agy;
 - projection parity and live synchronization for rules, skills, and MCP;
-- live migration and rollback from the earlier PAIW workspace;
+- live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.
 
 See [ROADMAP.md](ROADMAP.md) for the delivery order.

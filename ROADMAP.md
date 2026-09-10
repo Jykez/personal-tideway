@@ -17,7 +17,7 @@ Tideway будет хранить только текущий этап, реше
 | Next | Context loop / Контекстный цикл | Retrieve a bounded context bundle and write concise checkpoints |
 | Planned | Agent integration / Интеграция агентов | Shared continuity rules and lifecycle hooks for Codex and agy |
 | Planned | Projection parity / Общие возможности | Current MCP, rules, and skills projection for both clients |
-| Planned | Migration / Миграция | Plan, dry-run, backup, apply, and rollback from the earlier PAIW workspace |
+| Planned | Migration / Миграция | Plan, dry-run, backup, apply, and rollback from the legacy workspace |
 | Planned | Public alpha / Публичная alpha | Installer, onboarding, CI, documentation, license, and release artifacts |
 
 ## Working protocol / Рабочий протокол
