@@ -6,6 +6,46 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev3] - 2026-09-11
+
+### English
+
+- Added read-only, bounded project context retrieval through Basic Memory
+  0.23.2 with deterministic dry-run previews.
+- Current-state notes are selected only by an actual `current-state` permalink;
+  unrelated search results are never promoted.
+- Search results are validated, deduplicated, ranked, and constrained by item,
+  character, and two-megabyte subprocess-output limits.
+- Hardened query, permalink, and note-identifier handling against command-line
+  flag injection and path traversal.
+- Added sanitized failure boundaries that distinguish search from read-note
+  errors without exposing queries, note contents, paths, stderr, or secrets.
+- 366 passing automated tests, focused type checks, lint, and an independent
+  adversarial review.
+
+This checkpoint completes the retrieval half of the context loop. Concise,
+idempotent checkpoint writing is the next work package; lifecycle hooks and live
+migration remain unimplemented.
+
+### Русский
+
+- Добавлено доступное только для чтения получение ограниченного проектного
+  контекста через Basic Memory 0.23.2 с детерминированным dry-run preview.
+- Текущим состоянием признаётся только заметка с настоящим permalink
+  `current-state`; посторонние результаты поиска не повышаются автоматически.
+- Результаты поиска валидируются, дедуплицируются, ранжируются и ограничиваются
+  по числу элементов, символам и двум мегабайтам вывода дочернего процесса.
+- Обработка запросов, permalink и идентификаторов заметок защищена от подмены
+  флагов командной строки и обхода путей.
+- Ошибки search и read-note различаются, но не раскрывают запросы, содержимое
+  заметок, пути, stderr или секреты.
+- Успешно проходят 366 автоматических тестов, отдельная проверка типов, lint и
+  независимое adversarial review.
+
+Этот чекпоинт завершает половину контекстного цикла, отвечающую за чтение.
+Следующий пакет — компактная идемпотентная запись checkpoint; lifecycle hooks и
+живая миграция пока не реализованы.
+
 ## [0.1.0.dev2] - 2026-09-10
 
 ### English
