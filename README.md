@@ -36,14 +36,16 @@ Available and covered by automated tests:
 - isolated pinned Basic Memory 0.23.2 installation, health checks, and
   registry-to-config reconciliation without implicit main or default projects;
 - explicit reindex workflow and per-project JSON status reporting;
+- read-only, bounded context retrieval plus concise, idempotent project
+  checkpoint writes through Basic Memory;
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
-- 325 passing automated tests plus real disposable smoke tests.
+- 407 passing automated tests plus real disposable smoke tests.
 
 Still under construction:
 
-- bounded context retrieval and concise checkpoint writes;
-- agent lifecycle integration and shared continuity rules for Codex and agy;
+- CLI and lifecycle integration for context retrieval and checkpoint writes;
+- shared continuity rules for Codex and agy;
 - projection parity and live synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.

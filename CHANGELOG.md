@@ -6,6 +6,49 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev4] - 2026-09-12
+
+### English
+
+- Added concise, bounded project checkpoint writes through Basic Memory 0.23.2.
+- Checkpoints use a semantic fingerprint and a per-project lock, so identical
+  state is skipped without changing its timestamp.
+- Reads fail closed on errors or malformed responses; only the verified
+  Basic Memory missing-note response with null content permits a new write.
+- Dry-run performs no executable probe, clock read, lock creation, runner call,
+  or filesystem mutation.
+- Added bounded no-shell subprocess I/O, strict project resolution, secret-safe
+  validation and errors, and hostile lock-file checks.
+- Incompatible custom write runners are rejected before invocation instead of
+  silently dropping checkpoint content from stdin.
+- 407 automated tests pass together with focused lint, type, compile, secret
+  scans, and independent adversarial agy review.
+
+This checkpoint completes the core read/write context loop. CLI commands,
+shared continuity rules, and Codex/agy lifecycle integration are the next work
+package; live migration remains unimplemented.
+
+### Русский
+
+- Добавлена компактная ограниченная запись состояния проекта через Basic
+  Memory 0.23.2.
+- Семантический fingerprint и отдельная блокировка проекта позволяют пропускать
+  неизменившееся состояние без обновления timestamp.
+- Ошибки и некорректные ответы чтения обрабатываются в режиме fail-closed; новую
+  запись разрешает только проверенный ответ Basic Memory с пустым содержимым.
+- Dry-run не запускает проверку executable, часы, блокировку, runner и не меняет
+  файловую систему.
+- Добавлены ограниченный no-shell ввод-вывод, строгий выбор проекта, безопасные
+  проверки секретов и защита от враждебных lock-файлов.
+- Несовместимый пользовательский write-runner отклоняется до запуска и больше не
+  может молча потерять checkpoint, передаваемый через stdin.
+- Успешно проходят 407 автоматических тестов, отдельные lint, type и compile
+  проверки, secret-scan и независимое адверсариальное ревью agy.
+
+Эта версия завершает базовый цикл чтения и записи контекста. Следующий пакет —
+CLI-команды, общие правила непрерывности и подключение к жизненному циклу Codex
+и agy; живая миграция пока не реализована.
+
 ## [0.1.0.dev3] - 2026-09-11
 
 ### English
