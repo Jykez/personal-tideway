@@ -2,12 +2,17 @@
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from pathlib import Path
 import re
 from typing import Any
 import yaml
 
 from personal_tideway.constants import (
+    ASSURANCE_LEVEL_HOOKED,
+    ASSURANCE_LEVEL_INSTRUCTED,
+    ASSURANCE_LEVEL_MANUAL,
+    ASSURANCE_LEVEL_UNAVAILABLE,
     CLIENT_AGY,
     CLIENT_CODEX,
     SCHEMA_VERSION,
@@ -299,3 +304,53 @@ class ConflictRecord:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ConflictRecord":
         return cls(**data)
+
+
+class ContinuityAssuranceLevel(StrEnum):
+    """Continuity assurance level per client.
+
+    hooked: Deterministic client lifecycle hook installed and behavior verified.
+    instructed: Managed continuity rule and skill available to agent.
+    manual: Phase 4A CLI bridge remains the only usable continuity path.
+    unavailable: Continuity backend is disabled, broken, or uninitialized.
+    """
+    HOOKED = ASSURANCE_LEVEL_HOOKED
+    INSTRUCTED = ASSURANCE_LEVEL_INSTRUCTED
+    MANUAL = ASSURANCE_LEVEL_MANUAL
+    UNAVAILABLE = ASSURANCE_LEVEL_UNAVAILABLE
+
+
+@dataclass(frozen=True)
+class ClientContinuityAssurance:
+    """Continuity assurance evaluation result for a single client."""
+    client: str
+    level: ContinuityAssuranceLevel
+    rule_available: bool
+    skill_available: bool
+    details: str
+    hook_verified: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "client": self.client,
+            "level": self.level.value,
+            "rule_available": self.rule_available,
+            "skill_available": self.skill_available,
+            "details": self.details,
+            "hook_verified": self.hook_verified,
+        }
+
+
+@dataclass(frozen=True)
+class ContinuityAssuranceReport:
+    """Consolidated continuity assurance report across all supported clients."""
+    clients: dict[str, ClientContinuityAssurance]
+    backend_usable: bool
+    summary: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "clients": {k: v.to_dict() for k, v in self.clients.items()},
+            "backend_usable": self.backend_usable,
+            "summary": self.summary,
+        }

@@ -40,14 +40,17 @@ Available and covered by automated tests:
   checkpoint writes through Basic Memory;
 - safe CLI bridge for bounded project context retrieval (`ptw context show`,
   `ptw context search`) and idempotent checkpoint persistence (`ptw checkpoint`);
+- canonical shared continuity policy and minimal shared continuity skill
+  provisioned on init and projected via sync to Codex and agy;
+- typed, evidence-backed continuity assurance evaluator reporting instructed,
+  manual, or unavailable in status and doctor without false hook claims;
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
 - comprehensive passing automated test suite plus real disposable smoke tests.
 
 Still under construction:
 
-- native agent lifecycle hooks and shared continuity rules/skills assurance
-  for Codex and agy;
+- native agent lifecycle hooks for Codex and agy;
 - projection parity and live synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.

@@ -6,6 +6,32 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev6] - 2026-09-13
+
+### English
+
+- Added canonical shared continuity policy (`rules/shared/continuity.md`) and minimal shared continuity skill (`skills/shared/continuity/SKILL.md`) provisioned on `ptw init` into Personal Tideway workspace state without overwriting existing user edits.
+- Reused existing explicit `ptw sync`, adapter, backup, marker, and skill-link mechanisms to project continuity rules and skills to configured Codex and agy targets without claiming modern projection parity or native discovery.
+- Implemented small typed assurance model (`ContinuityAssuranceLevel`, `ClientContinuityAssurance`, `ContinuityAssuranceReport`) and deterministic evaluation based on evidence of managed rules, skills, and backend usability.
+- Explicitly documented and enforced assurance levels: `hooked`, `instructed`, `manual`, and `unavailable`. Never emits `hooked` without verified deterministic lifecycle hooks.
+- Surfaced continuity assurance levels and details in `ptw status` and `ptw doctor` in both human-readable text and structured single-document JSON output.
+- Always-on continuity policy stays compact (under 50 lines) covering context recall, search before guessing, checkpoint triggers, concise retention, no secrets/transcripts, verified persistence, and pointer to the on-demand skill.
+- Added comprehensive automated test suite covering provisioning, idempotency, non-overwrite, dry-run zero mutation, cross-client projections, downgrade scenarios, and absence of false hook claims.
+
+This slice delivers Phase 4B; native agent lifecycle hooks remain under investigation.
+
+### Русский
+
+- Добавлена каноническая общая политика непрерывности (`rules/shared/continuity.md`) и минимальный общий навык (`skills/shared/continuity/SKILL.md`), создаваемые при `ptw init` в воркспейсе Personal Tideway без перезаписи существующих правок пользователя.
+- Задействованы существующие механизмы явного `ptw sync`, адаптеров, бэкапов, маркеров и связывания навыков для проекции правил и навыков на сконфигурированные цели Codex и agy без утверждений о современном паритете проекций или нативном обнаружении.
+- Реализована компактная типизированная модель assurance (`ContinuityAssuranceLevel`, `ClientContinuityAssurance`, `ContinuityAssuranceReport`) и детерминированная оценка на основе свидетельств доступности управляемых правил, навыков и работоспособности бэкенда.
+- Четко определены и соблюдаются уровни assurance: `hooked`, `instructed`, `manual` и `unavailable`. Уровень `hooked` никогда не выдается без проверенных нативных хуков жизненного цикла.
+- Статус и детали assurance для клиентов отображаются в выводах `ptw status` и `ptw doctor` как в текстовом виде, так и в структурированном JSON.
+- Всегда активная политика непрерывности остается компактной (менее 50 строк) и охватывает восстановление контекста, поиск перед догадками, триггеры чекпоинтов, лаконичность, запрет секретов/транскриптов, проверенную запись и ссылку на навык.
+- Добавлен полный набор автоматических тестов, проверяющих инициализацию, идемпотентность, сохранение правок пользователя, нулевую мутацию при dry-run, проекции на обоих клиентов, сценарии даунгрейда и отсутствие ложных заявлений о хуках.
+
+Этот срез завершает Фазу 4B; нативные хуки жизненного цикла агентов остаются в исследовании.
+
 ## [0.1.0.dev5] - 2026-09-12
 
 ### English

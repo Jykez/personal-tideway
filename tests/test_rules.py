@@ -17,6 +17,9 @@ from personal_tideway.utils import atomic_write_text
 
 def test_rules_deterministic_composition_order(personal_tideway_config: PersonalTidewayConfig):
     """Test deterministic composition order: shared/*.md then client/*.md by filename."""
+    for f in personal_tideway_config.rules_shared.glob("*.md"):
+        f.unlink()
+
     # Shared fragments
     atomic_write_text(personal_tideway_config.rules_shared / "20_style.md", "Rule 20: Code style.")
     atomic_write_text(personal_tideway_config.rules_shared / "10_safety.md", "Rule 10: Safety first.")
@@ -32,6 +35,9 @@ def test_rules_deterministic_composition_order(personal_tideway_config: Personal
 
 def test_rules_preserves_outer_text_byte_for_byte(personal_tideway_config: PersonalTidewayConfig):
     """Test that outer text is preserved byte-for-byte on legitimate Personal Tideway-to-client propagation."""
+    for f in personal_tideway_config.rules_shared.glob("*.md"):
+        f.unlink()
+
     prefix_text = "### USER CUSTOM HEADER\nKeep these exact spaces and lines.\n\n"
     suffix_text = "\n\n### USER FOOTER\nStrictly preserve this byte-identical suffix."
 
@@ -69,6 +75,9 @@ def test_rules_preserves_outer_text_byte_for_byte(personal_tideway_config: Perso
 
 def test_rules_initial_divergence_conflicts_without_overwrite(personal_tideway_config: PersonalTidewayConfig):
     """Test that initial divergence on first sync creates a conflict without overwriting client file."""
+    for f in personal_tideway_config.rules_shared.glob("*.md"):
+        f.unlink()
+
     prefix_text = "### USER HEADER\n"
     suffix_text = "\n### USER FOOTER\n"
     initial_agents = f"{prefix_text}{RULE_MARKER_START}\npre-existing divergent rules\n{RULE_MARKER_END}{suffix_text}"
@@ -93,6 +102,9 @@ def test_rules_initial_divergence_conflicts_without_overwrite(personal_tideway_c
 
 def test_rules_client_only_change_propagates_bidirectionally(personal_tideway_config: PersonalTidewayConfig):
     """Test that client-only change to managed block propagates to Personal Tideway client fragment and is idempotent."""
+    for f in personal_tideway_config.rules_shared.glob("*.md"):
+        f.unlink()
+
     # 1. Establish base
     atomic_write_text(personal_tideway_config.rules_shared / "shared.md", "Shared company policy.")
     code_base = main([
@@ -161,6 +173,9 @@ def test_rules_malformed_marker_stops_with_conflict(personal_tideway_config: Per
 
 
 def test_first_sync_adopts_identical_unmanaged_rules_without_duplication(personal_tideway_config: PersonalTidewayConfig):
+    for f in personal_tideway_config.rules_shared.glob("*.md"):
+        f.unlink()
+
     existing = "# Shared rule\n\nKeep this once.\n"
     atomic_write_text(personal_tideway_config.agy_rules, existing)
     atomic_write_text(personal_tideway_config.rules_shared / "imported.md", existing)

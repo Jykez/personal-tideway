@@ -852,6 +852,7 @@ def main(
                 canonical_user_skills=cfg.canonical_user_skills,
                 gemini_home=cfg.gemini_home,
                 customization_root=cfg.agy_customization_root,
+                cfg=cfg,
             )
             if args.json:
                 print(json.dumps(doc_report, indent=2, sort_keys=True))

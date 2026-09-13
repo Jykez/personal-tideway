@@ -9,6 +9,7 @@ from personal_tideway.adapters.agy import AgyAdapter
 from personal_tideway.adapters.codex import CodexAdapter
 from personal_tideway.config import PersonalTidewayConfig
 from personal_tideway.constants import CLIENT_AGY, CLIENT_CODEX
+from personal_tideway.core.assurance import evaluate_assurance
 from personal_tideway.core.conflicts import load_all_conflicts
 from personal_tideway.core.discovery import (
     discover_agy,
@@ -38,6 +39,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
         portable_skills_alias=cfg.canonical_user_skills,
     )
     initialized = cfg.is_initialized()
+    assurance_report = evaluate_assurance(cfg)
     if not initialized:
         return {
             "initialized": False,
@@ -46,6 +48,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
                 "codex": codex_diag.to_dict(),
                 "agy": agy_diag.to_dict(),
             },
+            "continuity_assurance": assurance_report.to_dict(),
             "pending_changes": [],
             "conflicts": [],
             "deletions": [],
@@ -218,6 +221,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
             "codex": codex_diag.to_dict(),
             "agy": agy_diag.to_dict(),
         },
+        "continuity_assurance": assurance_report.to_dict(),
         "pending_changes": pending_changes,
         "conflicts": conflict_list,
         "deletions": deletions,
@@ -238,6 +242,12 @@ def format_status_text(status: dict[str, Any]) -> str:
             f"Personal Tideway workspace is NOT initialized at {status.get('home')}.",
             "Run 'ptw init' to create workspace.",
         ]
+        assurance = status.get("continuity_assurance", {})
+        if assurance and "clients" in assurance:
+            lines.append("")
+            lines.append("Continuity Assurance:")
+            for c_name, c_data in sorted(assurance["clients"].items()):
+                lines.append(f"  - {c_name}: {c_data.get('level', 'unavailable')} ({c_data.get('details', '')})")
         if "clients" in status:
             if "codex" in status["clients"]:
                 lines.append("")
@@ -252,8 +262,16 @@ def format_status_text(status: dict[str, Any]) -> str:
         f"Personal Tideway Home: {status['home']}",
         f"Memory Entries: {status['memory_count']}",
         f"Managed Skills: {status['skills_count']}",
-        "",
     ]
+
+    assurance = status.get("continuity_assurance", {})
+    if assurance and "clients" in assurance:
+        lines.append("")
+        lines.append("Continuity Assurance:")
+        for c_name, c_data in sorted(assurance["clients"].items()):
+            lines.append(f"  - {c_name}: {c_data.get('level', 'unknown')} ({c_data.get('details', '')})")
+
+    lines.append("")
 
     # Conflicts
     conflicts = status.get("conflicts", [])

@@ -53,6 +53,8 @@ def test_init_canonical_tree(tmp_path: Path):
     assert cfg.secrets_env.is_file()
     assert cfg.projects_yaml.is_file()
     assert cfg.state_file.is_file()
+    assert (cfg.rules_shared / "continuity.md").is_file()
+    assert (cfg.skills_shared / "continuity" / "SKILL.md").is_file()
 
     # Check secrets.env permissions mode 0600
     stat_mode = cfg.secrets_env.stat().st_mode & 0o777

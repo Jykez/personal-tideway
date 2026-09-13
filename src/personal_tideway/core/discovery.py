@@ -1,5 +1,7 @@
 """Read-only client discovery and diagnostics for Codex and related clients."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass
 import json
@@ -8,9 +10,12 @@ from pathlib import Path
 import shutil
 import subprocess
 import tomllib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from personal_tideway.constants import ExitCode
+
+if TYPE_CHECKING:
+    from personal_tideway.config import PersonalTidewayConfig
 
 
 @dataclass
@@ -624,8 +629,13 @@ def run_doctor(
     customization_root: Path | str | None = None,
     executable_resolver: Callable[[str], str | None] | None = None,
     version_runner: Callable[[list[str], float], tuple[int, str, str]] | None = None,
+    home: Path | str | None = None,
+    cfg: PersonalTidewayConfig | None = None,
 ) -> dict[str, Any]:
     """Run diagnostic doctor checks across supported clients."""
+    from personal_tideway.config import PersonalTidewayConfig
+    from personal_tideway.core.assurance import evaluate_assurance
+
     codex_diag = discover_codex(
         codex_home=codex_home,
         canonical_user_skills=canonical_user_skills,
@@ -640,6 +650,13 @@ def run_doctor(
         version_runner=version_runner,
     )
 
+    cfg_resolved = cfg or PersonalTidewayConfig.resolve(
+        home=home,
+        codex_home=codex_home,
+        gemini_home=gemini_home,
+    )
+    assurance_report = evaluate_assurance(cfg_resolved)
+
     all_checks = list(codex_diag.checks) + list(agy_diag.checks)
     has_error = any(c.status == "error" for c in all_checks)
     has_warning = any(c.status == "warning" for c in all_checks)
@@ -652,6 +669,7 @@ def run_doctor(
             "codex": codex_diag.to_dict(),
             "agy": agy_diag.to_dict(),
         },
+        "continuity_assurance": assurance_report.to_dict(),
         "checks": [c.to_dict() for c in all_checks],
     }
 
@@ -728,9 +746,17 @@ def format_doctor_text(report: dict[str, Any]) -> str:
         "=== Personal Tideway Doctor ===",
         f"Coverage: {report.get('coverage', 'Codex + AGY')}",
         f"Overall Status: {report.get('status', 'unknown').upper()}",
-        "",
-        "Diagnostic Checks:",
     ]
+
+    assurance = report.get("continuity_assurance", {})
+    if assurance and "clients" in assurance:
+        lines.append("")
+        lines.append("Continuity Assurance:")
+        for c_name, c_data in sorted(assurance["clients"].items()):
+            lines.append(f"  - {c_name}: {c_data.get('level', 'unknown')} ({c_data.get('details', '')})")
+
+    lines.append("")
+    lines.append("Diagnostic Checks:")
     for c in report.get("checks", []):
         tag = c["status"].upper()
         lines.append(f"  [{tag}] {c['id']}: {c['message']}")
