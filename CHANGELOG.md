@@ -6,6 +6,46 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev5] - 2026-09-12
+
+### English
+
+- Implemented safe CLI bridge commands for context retrieval and project checkpoints
+  (`ptw context show`, `ptw context search QUERY`, `ptw checkpoint`).
+- Context show/search commands expose `--project`, `--budget` (character cap), `--limit`
+  (search items cap), and `--json` options backed by the bounded retrieval core API.
+- Checkpoint command accepts structured UTF-8 JSON from either `--file` or `--stdin`
+  with strict mutual exclusivity and a 64 KiB conservative cap before JSON parsing.
+- Enforced strict project selection precedence: command-local `--project` > global/config
+  selection > strict current working directory resolution without auto-registration.
+- Checkpoint output accurately distinguishes written, unchanged, and dry-run results
+  in both human-readable text and structured single-document `--json` format with source client attribution.
+- Hardened against TOCTOU path races, symlinks, non-regular files, malformed JSON/UTF-8,
+  secret patterns, and host path disclosure in diagnostics and JSON errors.
+- Added comprehensive CLI unit tests with mocked Basic Memory runner boundaries.
+
+This slice delivers the Phase 4A CLI bridge; native agent lifecycle hooks, shared
+continuity rules, and skills assurance remain under construction.
+
+### Русский
+
+- Реализованы команды безопасного CLI-моста для получения контекста и сохранения
+  чекпоинтов проекта (`ptw context show`, `ptw context search QUERY`, `ptw checkpoint`).
+- Команды context show/search поддерживают `--project`, `--budget` (лимит символов),
+  `--limit` (лимит элементов поиска) и `--json` на базе API ограниченного чтения контекста.
+- Команда checkpoint принимает структурированный UTF-8 JSON через `--file` или `--stdin`
+  со строгой взаимной исключительностью и консервативным лимитом 64 КиБ до парсинга JSON.
+- Установлен строгий приоритет выбора проекта: локальный `--project` > глобальный
+  выбор/конфиг > строгое определение по текущей директории без авторегистрации.
+- Вывод checkpoint точно различает состояния `written`, `unchanged` и `dry-run`
+  как в текстовом виде, так и в формате единого JSON-документа (`--json`) с указанием source_client.
+- Реализована защита от гонок TOCTOU, символических ссылок, нерегулярных файлов,
+  некорректного JSON/UTF-8, паттернов секретов и утечки путей хоста в ошибках.
+- Добавлены полные модульные CLI-тесты с мокированием границ Basic Memory runner.
+
+Этот срез завершает CLI-мост Фазы 4A; нативные хуки жизненного цикла агентов, общие
+правила непрерывности и обеспечение навыков остаются в разработке.
+
 ## [0.1.0.dev4] - 2026-09-12
 
 ### English

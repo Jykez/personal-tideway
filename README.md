@@ -38,14 +38,16 @@ Available and covered by automated tests:
 - explicit reindex workflow and per-project JSON status reporting;
 - read-only, bounded context retrieval plus concise, idempotent project
   checkpoint writes through Basic Memory;
+- safe CLI bridge for bounded project context retrieval (`ptw context show`,
+  `ptw context search`) and idempotent checkpoint persistence (`ptw checkpoint`);
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
-- 407 passing automated tests plus real disposable smoke tests.
+- comprehensive passing automated test suite plus real disposable smoke tests.
 
 Still under construction:
 
-- CLI and lifecycle integration for context retrieval and checkpoint writes;
-- shared continuity rules for Codex and agy;
+- native agent lifecycle hooks and shared continuity rules/skills assurance
+  for Codex and agy;
 - projection parity and live synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.

@@ -2,24 +2,39 @@
 
 import argparse
 import json
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from personal_tideway import __version__
+from personal_tideway.cli.bridge import (
+    format_checkpoint_result,
+    format_context_result,
+    parse_checkpoint_payload,
+    read_checkpoint_file,
+    read_checkpoint_stdin,
+    resolve_cli_project,
+)
 from personal_tideway.config import PersonalTidewayConfig
 from personal_tideway.constants import (
     CLIENT_AGY,
     CLIENT_CODEX,
-    ExitCode,
     SUPPORTED_CLIENTS,
-    SUPPORTED_SKILL_LINK_MODES,
     SUPPORTED_TRANSPORTS,
-    TRANSPORT_HTTP,
-    TRANSPORT_STDIO,
+    ExitCode,
 )
-from personal_tideway.core.conflicts import load_all_conflicts
+from personal_tideway.core.basic_memory_installer import BasicMemoryRunner
+from personal_tideway.core.checkpoint import (
+    CheckpointRequest,
+    write_checkpoint,
+)
+from personal_tideway.core.context_retrieval import (
+    DEFAULT_MAX_CHARS,
+    DEFAULT_MAX_ITEMS,
+    ContextRetrievalRequest,
+    retrieve_context,
+)
+from personal_tideway.core.discovery import format_doctor_text, run_doctor
 from personal_tideway.core.external_registration import (
     confirm_external_project,
     propose_external_project,
@@ -41,21 +56,17 @@ from personal_tideway.core.project_resolver import (
 from personal_tideway.core.registry import load_registry
 from personal_tideway.core.skills import (
     create_skill,
-    find_skill,
     link_skill,
     list_all_skills,
     share_skill,
     unlink_skill,
 )
-from personal_tideway.core.discovery import format_doctor_text, run_doctor
 from personal_tideway.core.status import format_status_text, get_workspace_status
 from personal_tideway.core.sync import resolve_conflict, sync_workspace
 from personal_tideway.core.workspace import init_workspace
 from personal_tideway.exceptions import (
     ConfigError,
-    ConflictError,
     PersonalTidewayError,
-    RuntimeProbeError,
     ValidationError,
 )
 from personal_tideway.models import MCPServer
@@ -220,6 +231,31 @@ def build_parser() -> argparse.ArgumentParser:
     # 9. doctor
     p_doctor = subparsers.add_parser("doctor", help="Run system and client diagnostics")
     p_doctor.add_argument("--json", action="store_true", help="Output diagnostic report in JSON format")
+
+    # 10. context
+    p_context = subparsers.add_parser("context", help="Project context briefing and retrieval")
+    context_subs = p_context.add_subparsers(dest="context_command", required=True)
+
+    p_ctx_show = context_subs.add_parser("show", help="Retrieve current-state project context")
+    p_ctx_show.add_argument("--project", help="Explicit project ID, slug, or alias")
+    p_ctx_show.add_argument("--budget", type=int, help="Maximum characters budget")
+    p_ctx_show.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    p_ctx_search = context_subs.add_parser("search", help="Search project notes and context")
+    p_ctx_search.add_argument("query", help="Search query string")
+    p_ctx_search.add_argument("--project", help="Explicit project ID, slug, or alias")
+    p_ctx_search.add_argument("--budget", type=int, help="Maximum characters budget")
+    p_ctx_search.add_argument("--limit", type=int, help="Maximum items to return")
+    p_ctx_search.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    # 11. checkpoint
+    p_checkpoint = subparsers.add_parser("checkpoint", help="Persist concise idempotent project checkpoint")
+    p_checkpoint.add_argument("--project", help="Explicit project ID, slug, or alias")
+    p_checkpoint.add_argument("--dry-run", action="store_true", help="Preview checkpoint without writing")
+    p_checkpoint.add_argument("--json", action="store_true", help="Output in JSON format")
+    cp_group = p_checkpoint.add_mutually_exclusive_group(required=True)
+    cp_group.add_argument("--file", help="Path to JSON checkpoint file")
+    cp_group.add_argument("--stdin", action="store_true", help="Read JSON checkpoint from standard input")
 
     return parser
 
@@ -637,6 +673,85 @@ def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
     return ExitCode.SUCCESS
 
 
+def handle_context(
+    cfg: PersonalTidewayConfig,
+    args: argparse.Namespace,
+    *,
+    runner: BasicMemoryRunner | None = None,
+) -> int:
+    """Handler for 'ptw context' subcommands."""
+    project_rec = resolve_cli_project(cfg, getattr(args, "project", None))
+
+    budget = getattr(args, "budget", None)
+    max_chars = budget if budget is not None else DEFAULT_MAX_CHARS
+
+    if args.context_command == "show":
+        req = ContextRetrievalRequest(
+            project=project_rec,
+            query=None,
+            max_chars=max_chars,
+            include_current_state=True,
+        )
+        res = retrieve_context(cfg, req, runner=runner)
+        output = format_context_result(res, as_json=args.json)
+        print(output)
+        return ExitCode.SUCCESS
+
+    elif args.context_command == "search":
+        if not args.query or not args.query.strip():
+            raise ValidationError("Search query cannot be empty.")
+        clean_query = args.query.strip()
+        limit = getattr(args, "limit", None)
+        max_items = limit if limit is not None else DEFAULT_MAX_ITEMS
+
+        req = ContextRetrievalRequest(
+            project=project_rec,
+            query=clean_query,
+            max_chars=max_chars,
+            max_items=max_items,
+            include_current_state=True,
+        )
+        res = retrieve_context(cfg, req, runner=runner)
+        output = format_context_result(res, as_json=args.json, query=clean_query)
+        print(output)
+        return ExitCode.SUCCESS
+
+    return ExitCode.SUCCESS
+
+
+def handle_checkpoint(
+    cfg: PersonalTidewayConfig,
+    args: argparse.Namespace,
+    *,
+    runner: BasicMemoryRunner | None = None,
+    write_runner: BasicMemoryRunner | None = None,
+    read_runner: BasicMemoryRunner | None = None,
+) -> int:
+    """Handler for 'ptw checkpoint' subcommand."""
+    project_rec = resolve_cli_project(cfg, getattr(args, "project", None))
+
+    if args.stdin:
+        raw_input = read_checkpoint_stdin()
+    elif args.file:
+        raw_input = read_checkpoint_file(args.file)
+    else:
+        raise ValidationError("Exactly one of --file or --stdin must be provided.")
+
+    payload = parse_checkpoint_payload(raw_input)
+    req = CheckpointRequest(project=project_rec, payload=payload)
+    res = write_checkpoint(
+        cfg,
+        req,
+        dry_run=args.dry_run,
+        runner=runner,
+        write_runner=write_runner,
+        read_runner=read_runner,
+    )
+    output = format_checkpoint_result(res, as_json=args.json, source_client=payload.source_client)
+    print(output)
+    return ExitCode.SUCCESS
+
+
 def preprocess_cli_args(argv: Sequence[str] | None) -> list[str]:
     """Preprocess CLI arguments to cleanly handle flags beginning with '-' in --arg and --args."""
     if argv is None:
@@ -682,7 +797,13 @@ def preprocess_cli_args(argv: Sequence[str] | None) -> list[str]:
     return processed
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    runner: BasicMemoryRunner | None = None,
+    write_runner: BasicMemoryRunner | None = None,
+    read_runner: BasicMemoryRunner | None = None,
+) -> int:
     """Main CLI entrypoint."""
     parser = build_parser()
     clean_argv = preprocess_cli_args(argv)
@@ -758,10 +879,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.top_command == "project":
             return handle_project(cfg, args)
 
+        elif args.top_command == "context":
+            return handle_context(cfg, args, runner=runner)
+
+        elif args.top_command == "checkpoint":
+            return handle_checkpoint(
+                cfg,
+                args,
+                runner=runner,
+                write_runner=write_runner,
+                read_runner=read_runner,
+            )
+
     except PersonalTidewayError as e:
+        bridge_command = args.top_command in {"context", "checkpoint"}
+        if bridge_command and getattr(args, "json", False):
+            safe_error_msg = str(e)
+            if "not initialized at" in safe_error_msg:
+                safe_error_msg = "Personal Tideway workspace is not initialized. Run 'ptw init' first."
+            err_doc = {
+                "error": safe_error_msg,
+                "exit_code": int(e.exit_code),
+            }
+            print(json.dumps(err_doc, indent=2, ensure_ascii=False))
+            sys.stderr.write(f"Error: {safe_error_msg}\n")
+            return int(e.exit_code)
         sys.stderr.write(f"Error: {e}\n")
         return int(e.exit_code)
     except Exception as e:
+        bridge_command = args.top_command in {"context", "checkpoint"}
+        if bridge_command and getattr(args, "json", False):
+            err_doc = {
+                "error": "An unexpected error occurred.",
+                "exit_code": int(ExitCode.VALIDATION_ERROR),
+            }
+            print(json.dumps(err_doc, indent=2, ensure_ascii=False))
+            sys.stderr.write("Unexpected error occurred.\n")
+            return ExitCode.VALIDATION_ERROR
+        if bridge_command:
+            sys.stderr.write("Unexpected error occurred.\n")
+            return ExitCode.VALIDATION_ERROR
         sys.stderr.write(f"Unexpected error: {e}\n")
         return ExitCode.VALIDATION_ERROR
 

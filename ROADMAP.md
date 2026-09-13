@@ -15,7 +15,7 @@ Tideway будет хранить только текущий этап, реше
 | Done | Project identity / Идентификация проектов | Register Git, directory, and external projects outside source trees |
 | Done | Basic Memory | Isolated installation, health checks, and project reconciliation |
 | Done | Context loop / Контекстный цикл | Retrieve a bounded context bundle and write concise checkpoints |
-| Next | Agent integration / Интеграция агентов | Shared continuity rules and lifecycle hooks for Codex and agy |
+| Next | Agent integration / Интеграция агентов | Safe CLI bridge done; native lifecycle hooks, rules, and skills assurance remaining / Безопасный CLI-мост готов; нативные хуки жизненного цикла, правила и обеспечение навыков остаются в разработке |
 | Planned | Projection parity / Общие возможности | Current MCP, rules, and skills projection for both clients |
 | Planned | Migration / Миграция | Plan, dry-run, backup, apply, and rollback from the legacy workspace |
 | Planned | Public alpha / Публичная alpha | Installer, onboarding, CI, documentation, license, and release artifacts |
