@@ -608,6 +608,7 @@ def discover_agy(
         "current_skills": str(current_skills_path),
         "current_agy_skills": str(current_skills_path),
         "portable_skills_alias": str(resolved_portable_skills),
+        "hooks": str(resolved_customization_root / "hooks.json"),
         "legacy_gemini_md": str(legacy_gemini_md),
         "legacy_skills": str(legacy_skills_path),
     }
@@ -725,6 +726,7 @@ def format_client_agy_text(data: dict[str, Any]) -> str:
     lines.append(f"  MCP Config: {paths.get('mcp_config')}")
     lines.append(f"  Rules Root: {paths.get('rules_root')}")
     lines.append(f"  Current Skills: {paths.get('current_skills')}")
+    lines.append(f"  Hooks: {paths.get('hooks')}")
     lines.append(f"  Portable Skills Alias: {paths.get('portable_skills_alias')}")
     lines.append(f"  Legacy GEMINI.md: {paths.get('legacy_gemini_md')}")
     lines.append(f"  Legacy Skills: {paths.get('legacy_skills')}")

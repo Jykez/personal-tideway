@@ -83,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--home", help="Path to Personal Tideway home directory (overrides PERSONAL_TIDEWAY_HOME)")
     parser.add_argument("--codex-home", help="Path to Codex home directory (overrides CODEX_HOME)")
     parser.add_argument("--gemini-home", "--agy-home", dest="gemini_home", help="Path to agy home directory")
+    parser.add_argument("--agy-hooks", dest="agy_hooks", help="Path to agy hooks.json customization file")
     parser.add_argument("--project", dest="selected_project", help="Explicit project selection (overrides PERSONAL_TIDEWAY_PROJECT)")
 
     subparsers = parser.add_subparsers(dest="top_command", required=True)
@@ -256,6 +257,39 @@ def build_parser() -> argparse.ArgumentParser:
     cp_group = p_checkpoint.add_mutually_exclusive_group(required=True)
     cp_group.add_argument("--file", help="Path to JSON checkpoint file")
     cp_group.add_argument("--stdin", action="store_true", help="Read JSON checkpoint from standard input")
+
+    # 12. hook
+    p_hook = subparsers.add_parser("hook", help="Manage client lifecycle hooks")
+    hook_subs = p_hook.add_subparsers(dest="hook_command", required=True)
+
+    # hook status
+    p_hook_status = hook_subs.add_parser("status", help="Show lifecycle hook status")
+    p_hook_status.add_argument("--client", choices=[CLIENT_AGY], default=CLIENT_AGY, help="Target client (default: agy)")
+    p_hook_status.add_argument("--json", action="store_true", help="Output status in JSON format")
+
+    # hook plan
+    p_hook_plan = hook_subs.add_parser("plan", help="Preview hook installation plan without modifying files")
+    p_hook_plan.add_argument("--client", choices=[CLIENT_AGY], default=CLIENT_AGY, help="Target client (default: agy)")
+    p_hook_plan.add_argument("--json", action="store_true", help="Output plan in JSON format")
+
+    # hook install
+    p_hook_install = hook_subs.add_parser("install", help="Install managed lifecycle hook")
+    p_hook_install.add_argument("--client", choices=[CLIENT_AGY], default=CLIENT_AGY, help="Target client (default: agy)")
+    p_hook_install.add_argument("--dry-run", action="store_true", help="Preview changes without modifying files")
+    p_hook_install.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # hook remove
+    p_hook_remove = hook_subs.add_parser("remove", aliases=["uninstall"], help="Remove managed lifecycle hook")
+    p_hook_remove.add_argument("--client", choices=[CLIENT_AGY], default=CLIENT_AGY, help="Target client (default: agy)")
+    p_hook_remove.add_argument("--dry-run", action="store_true", help="Preview changes without modifying files")
+    p_hook_remove.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # hook agy-preinvocation
+    hook_subs.add_parser(
+        "agy-preinvocation",
+        aliases=["handle", "handle-preinvocation"],
+        help="Handle agy PreInvocation hook event (reads stdin payload)",
+    )
 
     return parser
 
@@ -797,6 +831,98 @@ def preprocess_cli_args(argv: Sequence[str] | None) -> list[str]:
     return processed
 
 
+def handle_hook(
+    cfg: PersonalTidewayConfig,
+    args: argparse.Namespace,
+    *,
+    runner: BasicMemoryRunner | None = None,
+) -> int:
+    """Handler for 'ptw hook' subcommands."""
+    from personal_tideway.core.hooks import (
+        get_agy_hook_status,
+        handle_agy_preinvocation,
+        install_agy_hook,
+        plan_agy_hook,
+        remove_agy_hook,
+    )
+
+    cmd = args.hook_command
+
+    if cmd == "status":
+        evidence = get_agy_hook_status(cfg)
+        if getattr(args, "json", False):
+            print(json.dumps(evidence.to_dict(), indent=2))
+        else:
+            print("AGY Lifecycle Hook Status:")
+            print(f"  Status: {evidence.status.value}")
+            print(f"  Event: {evidence.event}")
+            print(f"  Command: {evidence.command}")
+            print(f"  File: {evidence.target_path}")
+            print(f"  Details: {evidence.details}")
+            if evidence.conflict_reason:
+                print(f"  Conflict: {evidence.conflict_reason}")
+        return ExitCode.SUCCESS
+
+    elif cmd == "plan":
+        plan_doc = plan_agy_hook(cfg)
+        if getattr(args, "json", False):
+            print(json.dumps(plan_doc, indent=2))
+        else:
+            print(plan_doc["message"])
+        return ExitCode.SUCCESS
+
+    elif cmd == "install":
+        if not cfg.is_initialized():
+            raise ConfigError(
+                f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
+            )
+        changed, msg = install_agy_hook(cfg, dry_run=args.dry_run)
+        if getattr(args, "json", False):
+            doc = {
+                "action": "install",
+                "client": CLIENT_AGY,
+                "target_path": str(cfg.agy_hooks),
+                "changed": changed,
+                "dry_run": args.dry_run,
+                "message": msg,
+            }
+            print(json.dumps(doc, indent=2))
+        else:
+            print(msg)
+        return ExitCode.SUCCESS
+
+    elif cmd in ("remove", "uninstall"):
+        if not cfg.is_initialized():
+            raise ConfigError(
+                f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
+            )
+        changed, msg = remove_agy_hook(cfg, dry_run=args.dry_run)
+        if getattr(args, "json", False):
+            doc = {
+                "action": "remove",
+                "client": CLIENT_AGY,
+                "target_path": str(cfg.agy_hooks),
+                "changed": changed,
+                "dry_run": args.dry_run,
+                "message": msg,
+            }
+            print(json.dumps(doc, indent=2))
+        else:
+            print(msg)
+        return ExitCode.SUCCESS
+
+    elif cmd in ("agy-preinvocation", "handle", "handle-preinvocation"):
+        if not cfg.is_initialized():
+            raise ConfigError(
+                f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
+            )
+        code, response = handle_agy_preinvocation(cfg, runner=runner)
+        sys.stdout.write(json.dumps(response, indent=2, ensure_ascii=False) + "\n")
+        return code
+
+    return ExitCode.SUCCESS
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -815,6 +941,7 @@ def main(
             home=args.home,
             codex_home=args.codex_home,
             gemini_home=args.gemini_home,
+            agy_hooks=getattr(args, "agy_hooks", None),
             project=getattr(args, "selected_project", None),
         )
 
@@ -823,8 +950,8 @@ def main(
             print(f"Initialized Personal Tideway at {cfg.home}")
             return ExitCode.SUCCESS
 
-        # For commands other than init, project, status, and doctor, verify workspace is initialized
-        if args.top_command not in ("init", "project", "status", "doctor") and not cfg.is_initialized():
+        # For commands other than init, project, status, doctor, and hook, verify workspace is initialized
+        if args.top_command not in ("init", "project", "status", "doctor", "hook") and not cfg.is_initialized():
             raise ConfigError(
                 f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
             )
@@ -892,9 +1019,12 @@ def main(
                 read_runner=read_runner,
             )
 
+        elif args.top_command == "hook":
+            return handle_hook(cfg, args, runner=runner)
+
     except PersonalTidewayError as e:
-        bridge_command = args.top_command in {"context", "checkpoint"}
-        if bridge_command and getattr(args, "json", False):
+        json_command = args.top_command in {"context", "checkpoint", "hook"}
+        if json_command and getattr(args, "json", False):
             safe_error_msg = str(e)
             if "not initialized at" in safe_error_msg:
                 safe_error_msg = "Personal Tideway workspace is not initialized. Run 'ptw init' first."
@@ -908,8 +1038,8 @@ def main(
         sys.stderr.write(f"Error: {e}\n")
         return int(e.exit_code)
     except Exception as e:
-        bridge_command = args.top_command in {"context", "checkpoint"}
-        if bridge_command and getattr(args, "json", False):
+        json_command = args.top_command in {"context", "checkpoint", "hook"}
+        if json_command and getattr(args, "json", False):
             err_doc = {
                 "error": "An unexpected error occurred.",
                 "exit_code": int(ExitCode.VALIDATION_ERROR),
@@ -917,7 +1047,7 @@ def main(
             print(json.dumps(err_doc, indent=2, ensure_ascii=False))
             sys.stderr.write("Unexpected error occurred.\n")
             return ExitCode.VALIDATION_ERROR
-        if bridge_command:
+        if json_command:
             sys.stderr.write("Unexpected error occurred.\n")
             return ExitCode.VALIDATION_ERROR
         sys.stderr.write(f"Unexpected error: {e}\n")

@@ -1,8 +1,9 @@
 """Typed continuity assurance evaluator and diagnostic models.
 
-Phase 4B implementation:
+Phase 4B/4C-A implementation:
 - Levels are exactly: hooked, instructed, manual, unavailable.
-- This slice implements no native lifecycle hook, so it must never report hooked.
+- Structural lifecycle hook provisioning (Phase 4C-A) does not emit hooked;
+  a real quota-consuming client behavioral probe is required before hooked assurance.
 - instructed requires evidence that both exact managed continuity rule and skill are available to that client.
 - manual means the Phase 4A CLI bridge remains the only usable path.
 - unavailable means continuity/backend is disabled, broken, or uninitialized.
@@ -166,7 +167,9 @@ def evaluate_client_assurance(
     rule_available = check_client_continuity_rule(cfg, client)
     skill_available = check_client_continuity_skill(cfg, client)
 
-    # Phase 4B implements no native lifecycle hook evidence provider; hooked is never emitted.
+    # Phase 4C-A implements structural hook provisioning, but NO behavioral client probe yet.
+    # Level must remain INSTRUCTED, MANUAL, or UNAVAILABLE; hooked is never emitted
+    # from structural evidence alone until a real quota-consuming behavioral probe is executed.
     hook_verified = False
 
     if rule_available and skill_available:

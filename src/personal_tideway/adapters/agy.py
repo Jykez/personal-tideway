@@ -1,15 +1,16 @@
 """Antigravity (agy) adapter for mcp_config.json, GEMINI.md, and skills."""
 
 import json
-import os
 from pathlib import Path
 import shutil
+import stat
 from typing import Any
 
 from personal_tideway.adapters.base import BaseClientAdapter
 from personal_tideway.backup import create_backup_if_changed
 from personal_tideway.constants import (
     CLIENT_AGY,
+    MAX_HOOKS_JSON_BYTES,
     RULE_MARKER_END,
     RULE_MARKER_START,
     SKILL_LINK_SYMLINK,
@@ -25,6 +26,45 @@ from personal_tideway.utils import (
 )
 
 
+def inspect_hooks_path(hooks_path: Path) -> tuple[bool, int]:
+    """Safely inspect hooks.json without letting OSError escape or treating errors as absent.
+
+    Returns:
+        tuple[bool, int]: (exists, file_size)
+
+    Raises:
+        ValidationError: If path is a symlink, not a regular file, unreadable (OSError),
+            or exceeds MAX_HOOKS_JSON_BYTES.
+    """
+    try:
+        lstat_res = hooks_path.lstat()
+    except FileNotFoundError:
+        return False, 0
+    except OSError:
+        raise ValidationError(f"Failed to read agy hooks file {hooks_path}.")
+
+    if stat.S_ISLNK(lstat_res.st_mode):
+        raise ValidationError(f"Agy hooks file cannot be a symlink: {hooks_path}")
+
+    try:
+        st = hooks_path.stat()
+    except FileNotFoundError:
+        return False, 0
+    except OSError:
+        raise ValidationError(f"Failed to read agy hooks file {hooks_path}.")
+
+    if not stat.S_ISREG(st.st_mode):
+        raise ValidationError(f"Agy hooks path is not a regular file: {hooks_path}")
+
+    if st.st_size > MAX_HOOKS_JSON_BYTES:
+        raise ValidationError(
+            f"Agy hooks file {hooks_path} exceeds maximum allowed size "
+            f"({st.st_size} bytes > {MAX_HOOKS_JSON_BYTES} bytes)."
+        )
+
+    return True, st.st_size
+
+
 class AgyAdapter(BaseClientAdapter):
     """Adapter for Antigravity (agy) CLI (~/.gemini/config/mcp_config.json, GEMINI.md, skills)."""
 
@@ -36,11 +76,13 @@ class AgyAdapter(BaseClientAdapter):
         rules_path: Path,
         skills_path: Path,
         backups_dir: Path,
+        hooks_path: Path | None = None,
     ):
         self.config_path = config_path
         self.rules_path = rules_path
         self.skills_path = skills_path
         self.backups_dir = backups_dir
+        self.hooks_path = hooks_path or (config_path.parent / "hooks.json")
 
     def read_mcp_servers(self) -> dict[str, dict[str, Any]]:
         """Read mcpServers object from mcp_config.json."""
@@ -265,3 +307,79 @@ class AgyAdapter(BaseClientAdapter):
         """Verify that skill contains a valid SKILL.md for agy."""
         skill = SkillInfo(name=skill_dir.name, path=skill_dir, scope="check")
         return skill.is_valid()
+
+    def read_hooks_raw(self) -> tuple[dict[str, Any], str]:
+        """Safely read and return parsed doc and raw decoded content of hooks.json."""
+        exists, _ = inspect_hooks_path(self.hooks_path)
+        if not exists:
+            return {}, ""
+
+        try:
+            raw_bytes = self.hooks_path.read_bytes()
+        except OSError:
+            raise ValidationError(f"Failed to read agy hooks file {self.hooks_path}.")
+
+        if len(raw_bytes) > MAX_HOOKS_JSON_BYTES:
+            raise ValidationError(
+                f"Agy hooks file {self.hooks_path} exceeds maximum allowed size "
+                f"({len(raw_bytes)} bytes > {MAX_HOOKS_JSON_BYTES} bytes)."
+            )
+
+        try:
+            content = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise ValidationError(f"Malformed UTF-8 in agy hooks file {self.hooks_path}: {e}") from e
+
+        def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            seen: set[str] = set()
+            res: dict[str, Any] = {}
+            for k, v in pairs:
+                if k in seen:
+                    raise ValidationError(f"Duplicate key '{k}' detected in JSON object in {self.hooks_path}.")
+                seen.add(k)
+                res[k] = v
+            return res
+
+        try:
+            doc = json.loads(content, object_pairs_hook=_reject_duplicate_keys)
+        except json.JSONDecodeError as e:
+            raise ValidationError(f"Malformed JSON in agy hooks file {self.hooks_path}: {e}") from e
+
+        if not isinstance(doc, dict):
+            raise ValidationError(f"Agy hooks file {self.hooks_path} must contain a JSON object at the root.")
+
+        return doc, content
+
+    def read_hooks(self) -> dict[str, Any]:
+        """Safely read hooks.json dictionary, refusing symlinks, oversized files, duplicate keys, and non-dict roots."""
+        doc, _ = self.read_hooks_raw()
+        return doc
+
+    def write_hooks(self, hooks_doc: dict[str, Any], dry_run: bool = False) -> bool:
+        """Atomically write hooks.json dictionary, creating backups on mutation.
+
+        Fails closed without overwriting if an existing hooks file cannot be read,
+        decoded, stat-checked, or validated.
+        """
+        if not isinstance(hooks_doc, dict):
+            raise ValidationError("hooks_doc must be a dictionary.")
+
+        exists, _ = inspect_hooks_path(self.hooks_path)
+
+        new_content = json.dumps(hooks_doc, indent=2, ensure_ascii=False) + "\n"
+        if len(new_content.encode("utf-8")) > MAX_HOOKS_JSON_BYTES:
+            raise ValidationError(
+                f"Generated hooks configuration exceeds maximum allowed size ({MAX_HOOKS_JSON_BYTES} bytes)."
+            )
+
+        if exists:
+            _existing_doc, old_content = self.read_hooks_raw()
+            if old_content == new_content:
+                return False
+
+        if not dry_run:
+            self.hooks_path.parent.mkdir(parents=True, exist_ok=True)
+            create_backup_if_changed(self.hooks_path, new_content, self.backups_dir, dry_run=False)
+            atomic_write_text(self.hooks_path, new_content)
+
+        return True

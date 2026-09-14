@@ -44,13 +44,16 @@ Available and covered by automated tests:
   provisioned on init and projected via sync to Codex and agy;
 - typed, evidence-backed continuity assurance evaluator reporting instructed,
   manual, or unavailable in status and doctor without false hook claims;
+- safe Antigravity CLI (agy) initial-context lifecycle hook provisioning (`ptw hook install`,
+  `ptw hook remove`, `ptw hook status`, `ptw hook plan`) and bounded PreInvocation handler;
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
 - comprehensive passing automated test suite plus real disposable smoke tests.
 
 Still under construction:
 
-- native agent lifecycle hooks for Codex and agy;
+- real behavioral client probes for agy to verify hook execution before claiming hooked assurance;
+- native agent lifecycle hooks for Codex;
 - projection parity and live synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.

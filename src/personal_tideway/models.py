@@ -15,6 +15,9 @@ from personal_tideway.constants import (
     ASSURANCE_LEVEL_UNAVAILABLE,
     CLIENT_AGY,
     CLIENT_CODEX,
+    HOOK_STATUS_CONFLICT,
+    HOOK_STATUS_INSTALLED,
+    HOOK_STATUS_NOT_INSTALLED,
     SCHEMA_VERSION,
     SUPPORTED_CLIENTS,
     SUPPORTED_TRANSPORTS,
@@ -353,4 +356,39 @@ class ContinuityAssuranceReport:
             "clients": {k: v.to_dict() for k, v in self.clients.items()},
             "backend_usable": self.backend_usable,
             "summary": self.summary,
+        }
+
+
+class HookStatus(StrEnum):
+    """Lifecycle hook installation status.
+
+    installed: Hook definition is installed and matches canonical definition.
+    not_installed: Hook definition is not present.
+    conflict: Hook entry exists but differs from canonical definition.
+    """
+    INSTALLED = HOOK_STATUS_INSTALLED
+    NOT_INSTALLED = HOOK_STATUS_NOT_INSTALLED
+    CONFLICT = HOOK_STATUS_CONFLICT
+
+
+@dataclass(frozen=True)
+class AgyHookEvidence:
+    """Typed structural evidence of Antigravity CLI lifecycle hook configuration."""
+    status: HookStatus
+    event: str
+    command: str
+    target_path: Path
+    installed: bool
+    details: str
+    conflict_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status.value,
+            "event": self.event,
+            "command": self.command,
+            "target_path": str(self.target_path),
+            "installed": self.installed,
+            "details": self.details,
+            "conflict_reason": self.conflict_reason,
         }

@@ -17,6 +17,7 @@ from personal_tideway.core.discovery import (
     format_client_agy_text,
     format_client_codex_text,
 )
+from personal_tideway.core.hooks import get_agy_hook_status
 from personal_tideway.core.mcp import load_all_mcp_servers
 from personal_tideway.core.memory import list_memories
 from personal_tideway.core.rules import get_composed_rules_for_client
@@ -40,6 +41,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
     )
     initialized = cfg.is_initialized()
     assurance_report = evaluate_assurance(cfg)
+    agy_hook_evidence = get_agy_hook_status(cfg)
     if not initialized:
         return {
             "initialized": False,
@@ -49,6 +51,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
                 "agy": agy_diag.to_dict(),
             },
             "continuity_assurance": assurance_report.to_dict(),
+            "agy_hook": agy_hook_evidence.to_dict(),
             "pending_changes": [],
             "conflicts": [],
             "deletions": [],
@@ -222,6 +225,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
             "agy": agy_diag.to_dict(),
         },
         "continuity_assurance": assurance_report.to_dict(),
+        "agy_hook": agy_hook_evidence.to_dict(),
         "pending_changes": pending_changes,
         "conflicts": conflict_list,
         "deletions": deletions,
@@ -248,6 +252,9 @@ def format_status_text(status: dict[str, Any]) -> str:
             lines.append("Continuity Assurance:")
             for c_name, c_data in sorted(assurance["clients"].items()):
                 lines.append(f"  - {c_name}: {c_data.get('level', 'unavailable')} ({c_data.get('details', '')})")
+        agy_hook = status.get("agy_hook")
+        if agy_hook:
+            lines.append(f"  - agy hook: {agy_hook.get('status', 'unknown')}")
         if "clients" in status:
             if "codex" in status["clients"]:
                 lines.append("")
@@ -263,6 +270,10 @@ def format_status_text(status: dict[str, Any]) -> str:
         f"Memory Entries: {status['memory_count']}",
         f"Managed Skills: {status['skills_count']}",
     ]
+
+    agy_hook = status.get("agy_hook")
+    if agy_hook:
+        lines.append(f"AGY Lifecycle Hook: {agy_hook.get('status', 'unknown')}")
 
     assurance = status.get("continuity_assurance", {})
     if assurance and "clients" in assurance:

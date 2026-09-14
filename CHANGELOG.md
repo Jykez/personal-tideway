@@ -6,6 +6,32 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev7] - 2026-09-14
+
+### English
+
+- Implemented first Phase 4C capability: safe Antigravity CLI (agy) initial-context lifecycle hook provisioning and handler support.
+- Added managed named hook definition `personal-tideway` for agy's native `PreInvocation` event in `hooks.json`.
+- Implemented `ptw hook agy-preinvocation` handler that reads agy's documented JSON payload from stdin. PreInvocation fires before model calls; when `invocationNum == 0` (the first model invocation in the current invocation sequence/execution loop), it resolves project context without auto-registration and injects bounded Personal Tideway context into a single `ephemeralMessage`.
+- On subsequent invocations (`invocationNum > 0`), the handler returns a valid empty/no-op JSON response (`{"injectSteps": []}`) immediately without reading context.
+- Added explicit CLI lifecycle management: `ptw hook status`, `ptw hook plan`, `ptw hook install [--dry-run]`, and `ptw hook remove [--dry-run]` supporting text and single-document `--json` outputs.
+- Enforced strict protection of agy's `hooks.json`: semantic preservation of unrelated top-level hooks and unknown JSON keys, atomic writes, automatic backups on mutation, and refusal of oversized files, duplicate object keys, malformed JSON, non-object roots, symlink hazards, or conflicting user modifications.
+- Added typed structural evidence/status (`HookStatus`, `AgyHookEvidence`) exposed in `ptw status` and `ptw doctor`, while strictly preserving continuity assurance levels (`instructed`, `manual`, `unavailable`) and never claiming `hooked` without a real quota-consuming behavioral probe.
+
+This slice delivers the initial Phase 4C-A agy lifecycle hook; real behavioral client probes and Codex lifecycle hooks remain under construction.
+
+### Русский
+
+- Реализована первая возможность Фазы 4C: безопасная инициализация и обработка нативного хука начального контекста для Antigravity CLI (agy).
+- Добавлено управляемое именованное определение хука `personal-tideway` для нативного события `PreInvocation` agy в `hooks.json`.
+- Реализован обработчик `ptw hook agy-preinvocation`, считывающий документированный JSON-payload agy из stdin. Событие PreInvocation срабатывает перед вызовами модели; при `invocationNum == 0` (первый вызов модели в текущей последовательности вызовов / цикле выполнения) обработчик строго разрешает контекст проекта без авторегистрации и передает ограниченный контекст Personal Tideway в одном `ephemeralMessage`.
+- При последующих вызовах (`invocationNum > 0`) обработчик немедленно возвращает валидный пустой no-op JSON-ответ (`{"injectSteps": []}`) без чтения контекста.
+- Добавлено явное CLI-управление жизненным циклом: `ptw hook status`, `ptw hook plan`, `ptw hook install [--dry-run]` и `ptw hook remove [--dry-run]` с поддержкой текстового вывода и единого `--json` документа.
+- Обеспечена строгая защита `hooks.json` agy: семантическое сохранение посторонних хуков и неизвестных JSON-ключей, атомарная запись, автоматическое создание бэкапов при изменениях и отказ от перезаписи при файлах чрезмерного размера, дубликатах ключей, некорректном JSON, корнях-не-объектах, рисках симлинков или конфликтующих правках пользователя.
+- Добавлены типизированные структурные свидетельства и статус (`HookStatus`, `AgyHookEvidence`), отображаемые в `ptw status` и `ptw doctor`, при этом уровни continuity assurance строго сохраняются (`instructed`, `manual`, `unavailable`) и статус `hooked` никогда не выдается без реального поведенческого зонда с расходом квоты.
+
+Этот срез завершает начальный этап Фазы 4C-A для agy; реальный поведенческий зонд и хуки жизненного цикла Codex остаются в разработке.
+
 ## [0.1.0.dev6] - 2026-09-13
 
 ### English

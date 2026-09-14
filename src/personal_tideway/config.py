@@ -74,6 +74,7 @@ class PersonalTidewayConfig:
     custom_codex_rules: Path | None = None
     custom_agy_config: Path | None = None
     custom_agy_rules: Path | None = None
+    custom_agy_hooks: Path | None = None
     project: str | None = None
     auto_register_git: bool = True
 
@@ -292,6 +293,12 @@ class PersonalTidewayConfig:
     def agy_legacy_skills(self) -> Path:
         return self.gemini_home / "skills"
 
+    @property
+    def agy_hooks(self) -> Path:
+        if self.custom_agy_hooks:
+            return self.custom_agy_hooks
+        return self.agy_customization_root / "hooks.json"
+
     def validate_owned_path(self, path: str | Path, allow_root: bool = False) -> Path:
         """Validate that path is safely contained within this workspace root without side-effects."""
         return validate_owned_path(path, root=self.home, allow_root=allow_root)
@@ -323,6 +330,8 @@ class PersonalTidewayConfig:
             client_paths["agy_config"] = str(self.custom_agy_config)
         if self.custom_agy_rules:
             client_paths["agy_rules"] = str(self.custom_agy_rules)
+        if self.custom_agy_hooks:
+            client_paths["agy_hooks"] = str(self.custom_agy_hooks)
 
         data: dict[str, Any] = {
             "version": self.version,
@@ -344,6 +353,7 @@ class PersonalTidewayConfig:
         codex_rules: str | Path | None = None,
         agy_config: str | Path | None = None,
         agy_rules: str | Path | None = None,
+        agy_hooks: str | Path | None = None,
         skill_link_mode: str | None = None,
         project: str | None = None,
         auto_register_git: bool | None = None,
@@ -501,6 +511,15 @@ class PersonalTidewayConfig:
                 else None
             )
         )
+        a_hooks = (
+            Path(agy_hooks).expanduser().resolve()
+            if agy_hooks is not None
+            else (
+                Path(file_client_paths["agy_hooks"]).expanduser().resolve()
+                if file_client_paths.get("agy_hooks")
+                else None
+            )
+        )
 
         # 6. Resolve skill_link_mode with precedence
         if skill_link_mode is not None:
@@ -555,6 +574,7 @@ class PersonalTidewayConfig:
             custom_codex_rules=c_rules,
             custom_agy_config=a_config,
             custom_agy_rules=a_rules,
+            custom_agy_hooks=a_hooks,
             project=resolved_project,
             auto_register_git=resolved_auto_reg,
             version=file_version,
