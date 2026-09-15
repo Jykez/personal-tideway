@@ -352,6 +352,7 @@ def discover_codex(
         "effective_global_rules": str(effective_global_rules) if effective_global_rules else None,
         "canonical_user_skills": str(resolved_canonical_skills),
         "legacy_skills": str(legacy_skills_path),
+        "hooks": str(resolved_codex_home / "hooks.json"),
     }
 
     return CodexDiscoveryResult(
@@ -657,6 +658,11 @@ def run_doctor(
         gemini_home=gemini_home,
     )
     assurance_report = evaluate_assurance(cfg_resolved)
+    from personal_tideway.core.hooks import get_codex_hook_status
+
+    codex_hook_report = get_codex_hook_status(cfg_resolved).to_dict()
+    if "target_path" not in codex_hook_report:
+        codex_hook_report["target_path"] = str(cfg_resolved.codex_hooks)
 
     all_checks = list(codex_diag.checks) + list(agy_diag.checks)
     has_error = any(c.status == "error" for c in all_checks)
@@ -671,6 +677,7 @@ def run_doctor(
             "agy": agy_diag.to_dict(),
         },
         "continuity_assurance": assurance_report.to_dict(),
+        "codex_hook": codex_hook_report,
         "checks": [c.to_dict() for c in all_checks],
     }
 
@@ -694,6 +701,7 @@ def format_client_codex_text(data: dict[str, Any]) -> str:
     lines.append(f"  Effective Rules: {paths.get('effective_global_rules') or 'None'}")
     lines.append(f"  Canonical Skills: {paths.get('canonical_user_skills')}")
     lines.append(f"  Legacy Skills: {paths.get('legacy_skills')}")
+    lines.append(f"  Hooks: {paths.get('hooks')}")
 
     checks = data.get("checks", [])
     if checks:
@@ -756,6 +764,16 @@ def format_doctor_text(report: dict[str, Any]) -> str:
         lines.append("Continuity Assurance:")
         for c_name, c_data in sorted(assurance["clients"].items()):
             lines.append(f"  - {c_name}: {c_data.get('level', 'unknown')} ({c_data.get('details', '')})")
+
+    codex_hook = report.get("codex_hook", {})
+    if codex_hook:
+        lines.append("")
+        lines.append("Codex Lifecycle Hook (structural only):")
+        lines.append(f"  Status: {codex_hook.get('status', 'unknown')}")
+        if codex_hook.get("target_path"):
+            lines.append(f"  Target: {codex_hook['target_path']}")
+        if codex_hook.get("details"):
+            lines.append(f"  Details: {codex_hook['details']}")
 
     lines.append("")
     lines.append("Diagnostic Checks:")

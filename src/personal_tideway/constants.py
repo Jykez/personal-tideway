@@ -69,5 +69,12 @@ AGY_HOOK_NAME = "personal-tideway"
 AGY_HOOK_EVENT = "PreInvocation"
 AGY_HOOK_COMMAND = "ptw hook agy-preinvocation"
 AGY_HOOK_TIMEOUT = 30
+
+CODEX_HOOK_EVENT = "SessionStart"
+CODEX_HOOK_COMMAND = "ptw hook codex-session-start"
+CODEX_HOOK_MATCHER = r"^(startup|resume|clear|compact)$"
+CODEX_HOOK_TIMEOUT = 30
+CODEX_HOOK_ADDITIONAL_CONTEXT_LIMIT = 2500
+
 MAX_HOOK_INPUT_BYTES = 64 * 1024  # 64 KiB conservative cap
 MAX_HOOKS_JSON_BYTES = 256 * 1024  # 256 KiB conservative cap for hooks.json

@@ -17,7 +17,7 @@ from personal_tideway.core.discovery import (
     format_client_agy_text,
     format_client_codex_text,
 )
-from personal_tideway.core.hooks import get_agy_hook_status
+from personal_tideway.core.hooks import get_agy_hook_status, get_codex_hook_status
 from personal_tideway.core.mcp import load_all_mcp_servers
 from personal_tideway.core.memory import list_memories
 from personal_tideway.core.rules import get_composed_rules_for_client
@@ -42,6 +42,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
     initialized = cfg.is_initialized()
     assurance_report = evaluate_assurance(cfg)
     agy_hook_evidence = get_agy_hook_status(cfg)
+    codex_hook_evidence = get_codex_hook_status(cfg)
     if not initialized:
         return {
             "initialized": False,
@@ -52,6 +53,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
             },
             "continuity_assurance": assurance_report.to_dict(),
             "agy_hook": agy_hook_evidence.to_dict(),
+            "codex_hook": codex_hook_evidence.to_dict(),
             "pending_changes": [],
             "conflicts": [],
             "deletions": [],
@@ -226,6 +228,7 @@ def get_workspace_status(cfg: PersonalTidewayConfig) -> dict[str, Any]:
         },
         "continuity_assurance": assurance_report.to_dict(),
         "agy_hook": agy_hook_evidence.to_dict(),
+        "codex_hook": codex_hook_evidence.to_dict(),
         "pending_changes": pending_changes,
         "conflicts": conflict_list,
         "deletions": deletions,
@@ -252,6 +255,9 @@ def format_status_text(status: dict[str, Any]) -> str:
             lines.append("Continuity Assurance:")
             for c_name, c_data in sorted(assurance["clients"].items()):
                 lines.append(f"  - {c_name}: {c_data.get('level', 'unavailable')} ({c_data.get('details', '')})")
+        codex_hook = status.get("codex_hook")
+        if codex_hook:
+            lines.append(f"  - codex hook: {codex_hook.get('status', 'unknown')}")
         agy_hook = status.get("agy_hook")
         if agy_hook:
             lines.append(f"  - agy hook: {agy_hook.get('status', 'unknown')}")
@@ -271,6 +277,9 @@ def format_status_text(status: dict[str, Any]) -> str:
         f"Managed Skills: {status['skills_count']}",
     ]
 
+    codex_hook = status.get("codex_hook")
+    if codex_hook:
+        lines.append(f"Codex Lifecycle Hook: {codex_hook.get('status', 'unknown')}")
     agy_hook = status.get("agy_hook")
     if agy_hook:
         lines.append(f"AGY Lifecycle Hook: {agy_hook.get('status', 'unknown')}")

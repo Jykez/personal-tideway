@@ -46,19 +46,34 @@ Available and covered by automated tests:
   manual, or unavailable in status and doctor without false hook claims;
 - safe Antigravity CLI (agy) initial-context lifecycle hook provisioning (`ptw hook install`,
   `ptw hook remove`, `ptw hook status`, `ptw hook plan`) and bounded PreInvocation handler;
+- safe Codex initial-context lifecycle hook provisioning (`ptw hook install --client codex`,
+  `ptw hook remove --client codex`, `ptw hook status --client codex`, `ptw hook plan --client codex`) and bounded SessionStart handler (`ptw hook codex-session-start`);
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
 - comprehensive passing automated test suite plus real disposable smoke tests.
 
 Still under construction:
 
-- real behavioral client probes for agy to verify hook execution before claiming hooked assurance;
-- native agent lifecycle hooks for Codex;
+- durable live client hook assurance verification (evaluator reports `instructed`, `manual`, or `unavailable`; disposable capability probe does not auto-promote live assurance without active installed/enabled/trust/digest evidence);
+- stop/checkpoint lifecycle integration (explicitly scheduled as the next separate slice);
 - projection parity and live synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.
 
 See [ROADMAP.md](ROADMAP.md) for the delivery order.
+
+## Codex lifecycle integration
+
+Personal Tideway integrates with Codex CLI (0.152.0) using its native hook contract ([Codex hooks documentation](https://learn.chatgpt.com/docs/hooks)):
+
+- **Lifecycle commands:** `ptw hook plan --client codex`, `ptw hook install --client codex`, `ptw hook status --client codex`, and `ptw hook remove --client codex` (`--dry-run` is supported for `install` and `remove`; default client remains `agy`).
+- **Hook target:** Managed hooks live in `$CODEX_HOME/hooks.json`. An optional `--codex-hooks` flag accepts paths strictly bounded within `$CODEX_HOME` with lexical symlink traversal validation.
+- **Event contract:** Listens exclusively to the single `SessionStart` event with matcher regex `^(startup|resume|clear|compact)$`, executing handler `ptw hook codex-session-start`.
+- **Parsing and serialization safety:** Enforces a strict 256 KiB file limit for JSON and TOML hook files, while the handler stdin payload enforces a 64 KiB cap; both enforce a maximum JSON recursion depth of 64 (TOML is parser-bounded with standard parser exceptions and no explicit depth limit). Unrelated JSON content is preserved semantically. Hook file writes are atomic, and backups are created before modifications. The installer performs append/remove only on its exact managed group. Duplicate entries, modified managed entries, and inline collision with existing Tideway commands fail closed.
+- **Layering and trust model:** Codex hook layers are additive (not override); matching hook commands can run concurrently. Project-level hooks only run in trusted projects. User-level hooks require manual approval via `/hooks` or initial trust review in the Codex TUI. The installer never writes trust hashes and never bypasses client security prompts. Explicitly disabled hooks or managed-only policies may prevent hook execution.
+- **Handler boundaries:** The `codex-session-start` handler only serves strictly registered projects (no automatic project registration), ignores conversation transcript dumps, and executes exactly one bounded context retrieval (max 5 items, 8,000 characters), returning a `hookSpecificOutput` payload with `additionalContext`.
+- **Assurance and behavioral probe status:** Structural presence in `ptw status` or `ptw doctor` reports assurance strictly among `instructed`, `manual`, or `unavailable` (`hook_verified` remains `False`; no `incapable` level exists in the evaluator). The isolated disposable capability probe passed on 2026-09-15 without security bypass (see [CODEX_HOOK_PROBE.md](docs/CODEX_HOOK_PROBE.md)), validating the negative control (`NO_INITIAL_CONTEXT`), TUI trust review, Codex-computed digest, single backend retrieval, and exact model marker `PTW_CODEX_4CB_92E8B6D1` for `startup`. Live configs were not changed, and disposable success does not automatically promote live assurance to `hooked`.
+- **Next steps:** Stop/checkpoint lifecycle integration is explicitly scheduled as the next separate slice; no migration, feature parity, or public alpha is claimed yet.
 
 ## Data layout
 

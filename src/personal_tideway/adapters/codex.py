@@ -1,9 +1,13 @@
 """Codex CLI adapter for TOML config, AGENTS.md rules, and skills."""
 
+import json
+import math
 import os
-from pathlib import Path
 import shutil
+import stat
+from pathlib import Path
 from typing import Any
+
 import tomlkit
 from tomlkit.items import Table
 
@@ -11,6 +15,7 @@ from personal_tideway.adapters.base import BaseClientAdapter
 from personal_tideway.backup import create_backup_if_changed
 from personal_tideway.constants import (
     CLIENT_CODEX,
+    MAX_HOOKS_JSON_BYTES,
     RULE_MARKER_END,
     RULE_MARKER_START,
     SKILL_LINK_SYMLINK,
@@ -26,6 +31,83 @@ from personal_tideway.utils import (
 )
 
 
+def inspect_hooks_path(hooks_path: Path) -> tuple[bool, int]:
+    """Safely inspect hooks.json without letting OSError escape or treating errors as absent.
+
+    Returns:
+        tuple[bool, int]: (exists, file_size)
+
+    Raises:
+        ValidationError: If path is a symlink, not a regular file, unreadable (OSError),
+            or exceeds MAX_HOOKS_JSON_BYTES.
+    """
+    try:
+        lstat_res = hooks_path.lstat()
+    except FileNotFoundError:
+        return False, 0
+    except OSError:
+        raise ValidationError(f"Failed to read Codex hooks file {hooks_path}.")
+
+    if stat.S_ISLNK(lstat_res.st_mode):
+        raise ValidationError(f"Codex hooks file cannot be a symlink: {hooks_path}")
+
+    try:
+        st = hooks_path.stat()
+    except FileNotFoundError:
+        return False, 0
+    except OSError:
+        raise ValidationError(f"Failed to read Codex hooks file {hooks_path}.")
+
+    if not stat.S_ISREG(st.st_mode):
+        raise ValidationError(f"Codex hooks path is not a regular file: {hooks_path}")
+
+    if st.st_size > MAX_HOOKS_JSON_BYTES:
+        raise ValidationError(
+            f"Codex hooks file {hooks_path} exceeds maximum allowed size "
+            f"({st.st_size} bytes > {MAX_HOOKS_JSON_BYTES} bytes)."
+        )
+
+    return True, st.st_size
+
+
+def _validate_codex_hooks_structure(obj: Any, path: Path, max_depth: int = 64) -> None:
+    """Validate JSON container depth <= max_depth, finite floats, and no surrogate strings."""
+    if not isinstance(obj, (dict, list)):
+        return
+    stack: list[tuple[Any, int]] = [(obj, 1)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > max_depth:
+            raise ValidationError(f"Codex hooks file {path} exceeds maximum allowed nesting depth.")
+        if isinstance(current, dict):
+            for k, v in current.items():
+                if isinstance(k, str):
+                    try:
+                        k.encode("utf-8")
+                    except UnicodeEncodeError:
+                        raise ValidationError(f"Invalid Unicode string in Codex hooks file {path}.") from None
+                if isinstance(v, (dict, list)):
+                    stack.append((v, depth + 1))
+                elif isinstance(v, str):
+                    try:
+                        v.encode("utf-8")
+                    except UnicodeEncodeError:
+                        raise ValidationError(f"Invalid Unicode string in Codex hooks file {path}.") from None
+                elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    raise ValidationError(f"Non-standard JSON constant detected in Codex hooks file {path}.")
+        elif isinstance(current, list):
+            for item in current:
+                if isinstance(item, (dict, list)):
+                    stack.append((item, depth + 1))
+                elif isinstance(item, str):
+                    try:
+                        item.encode("utf-8")
+                    except UnicodeEncodeError:
+                        raise ValidationError(f"Invalid Unicode string in Codex hooks file {path}.") from None
+                elif isinstance(item, float) and (math.isnan(item) or math.isinf(item)):
+                    raise ValidationError(f"Non-standard JSON constant detected in Codex hooks file {path}.")
+
+
 class CodexAdapter(BaseClientAdapter):
     """Adapter for Codex CLI (~/.codex/config.toml, AGENTS.md, skills)."""
 
@@ -37,11 +119,13 @@ class CodexAdapter(BaseClientAdapter):
         rules_path: Path,
         skills_path: Path,
         backups_dir: Path,
+        hooks_path: Path | None = None,
     ):
         self.config_path = config_path
         self.rules_path = rules_path
         self.skills_path = skills_path
         self.backups_dir = backups_dir
+        self.hooks_path = hooks_path or (config_path.parent / "hooks.json")
 
     def read_mcp_servers(self) -> dict[str, dict[str, Any]]:
         """Read [mcp_servers.<name>] tables from config.toml."""
@@ -275,3 +359,100 @@ class CodexAdapter(BaseClientAdapter):
         """Verify that skill contains a valid SKILL.md for Codex."""
         skill = SkillInfo(name=skill_dir.name, path=skill_dir, scope="check")
         return skill.is_valid()
+
+    def read_hooks_raw(self) -> tuple[dict[str, Any], str]:
+        """Safely read and return parsed doc and raw decoded content of hooks.json."""
+        exists, _ = inspect_hooks_path(self.hooks_path)
+        if not exists:
+            return {}, ""
+
+        try:
+            with open(self.hooks_path, "rb") as f:
+                raw_bytes = f.read(MAX_HOOKS_JSON_BYTES + 1)
+        except OSError:
+            raise ValidationError(f"Failed to read Codex hooks file {self.hooks_path}.") from None
+
+        if len(raw_bytes) > MAX_HOOKS_JSON_BYTES:
+            raise ValidationError(
+                f"Codex hooks file {self.hooks_path} exceeds maximum allowed size "
+                f"({len(raw_bytes)} bytes > {MAX_HOOKS_JSON_BYTES} bytes)."
+            )
+
+        try:
+            content = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValidationError(f"Malformed UTF-8 in Codex hooks file {self.hooks_path}.") from None
+
+        def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            seen: set[str] = set()
+            res: dict[str, Any] = {}
+            for k, v in pairs:
+                if k in seen:
+                    raise ValidationError(f"Duplicate key detected in JSON object in {self.hooks_path}.")
+                seen.add(k)
+                res[k] = v
+            return res
+
+        def _reject_constant(val: str) -> None:
+            raise ValidationError(f"Non-standard JSON constant detected in Codex hooks file {self.hooks_path}.")
+
+        try:
+            doc = json.loads(
+                content,
+                parse_constant=_reject_constant,
+                object_pairs_hook=_reject_duplicate_keys,
+            )
+        except (ValueError, RecursionError):
+            raise ValidationError(f"Malformed JSON in Codex hooks file {self.hooks_path}.") from None
+
+        if not isinstance(doc, dict):
+            raise ValidationError(f"Codex hooks file {self.hooks_path} must contain a JSON object at the root.")
+
+        _validate_codex_hooks_structure(doc, self.hooks_path)
+
+        return doc, content
+
+    def read_hooks(self) -> dict[str, Any]:
+        """Safely read hooks.json dictionary, refusing symlinks, oversized files, duplicate keys, and non-dict roots."""
+        doc, _ = self.read_hooks_raw()
+        return doc
+
+    def write_hooks(self, hooks_doc: dict[str, Any], dry_run: bool = False) -> bool:
+        """Atomically write hooks.json dictionary, creating backups on mutation.
+
+        Fails closed without overwriting if an existing hooks file cannot be read,
+        decoded, stat-checked, or validated.
+        """
+        if not isinstance(hooks_doc, dict):
+            raise ValidationError("hooks_doc must be a dictionary.")
+
+        exists, _ = inspect_hooks_path(self.hooks_path)
+
+        _validate_codex_hooks_structure(hooks_doc, self.hooks_path)
+
+        try:
+            new_content = json.dumps(hooks_doc, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        except (ValueError, TypeError, OverflowError, RecursionError):
+            raise ValidationError("Failed to serialize hooks configuration.") from None
+
+        try:
+            encoded_bytes = new_content.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValidationError("Failed to encode hooks configuration as UTF-8.") from None
+
+        if len(encoded_bytes) > MAX_HOOKS_JSON_BYTES:
+            raise ValidationError(
+                f"Generated hooks configuration exceeds maximum allowed size ({MAX_HOOKS_JSON_BYTES} bytes)."
+            )
+
+        if exists:
+            _existing_doc, old_content = self.read_hooks_raw()
+            if old_content == new_content:
+                return False
+
+        if not dry_run:
+            self.hooks_path.parent.mkdir(parents=True, exist_ok=True)
+            create_backup_if_changed(self.hooks_path, new_content, self.backups_dir, dry_run=False)
+            atomic_write_text(self.hooks_path, new_content)
+
+        return True

@@ -72,6 +72,7 @@ class PersonalTidewayConfig:
     skill_link_mode: str = SKILL_LINK_SYMLINK
     custom_codex_config: Path | None = None
     custom_codex_rules: Path | None = None
+    custom_codex_hooks: Path | None = None
     custom_agy_config: Path | None = None
     custom_agy_rules: Path | None = None
     custom_agy_hooks: Path | None = None
@@ -254,6 +255,12 @@ class PersonalTidewayConfig:
         return self.codex_home / "skills"
 
     @property
+    def codex_hooks(self) -> Path:
+        if self.custom_codex_hooks:
+            return self.custom_codex_hooks
+        return self.codex_home / "hooks.json"
+
+    @property
     def canonical_user_skills(self) -> Path:
         return Path.home() / ".agents" / "skills"
 
@@ -326,6 +333,8 @@ class PersonalTidewayConfig:
             client_paths["codex_config"] = str(self.custom_codex_config)
         if self.custom_codex_rules:
             client_paths["codex_rules"] = str(self.custom_codex_rules)
+        if self.custom_codex_hooks:
+            client_paths["codex_hooks"] = str(self.custom_codex_hooks)
         if self.custom_agy_config:
             client_paths["agy_config"] = str(self.custom_agy_config)
         if self.custom_agy_rules:
@@ -351,6 +360,7 @@ class PersonalTidewayConfig:
         gemini_home: str | Path | None = None,
         codex_config: str | Path | None = None,
         codex_rules: str | Path | None = None,
+        codex_hooks: str | Path | None = None,
         agy_config: str | Path | None = None,
         agy_rules: str | Path | None = None,
         agy_hooks: str | Path | None = None,
@@ -493,6 +503,15 @@ class PersonalTidewayConfig:
                 else None
             )
         )
+        c_hooks = (
+            Path(codex_hooks).expanduser().absolute()
+            if codex_hooks is not None
+            else (
+                Path(file_client_paths["codex_hooks"]).expanduser().absolute()
+                if file_client_paths.get("codex_hooks")
+                else None
+            )
+        )
         a_config = (
             Path(agy_config).expanduser().resolve()
             if agy_config is not None
@@ -572,6 +591,7 @@ class PersonalTidewayConfig:
             skill_link_mode=resolved_mode,
             custom_codex_config=c_config,
             custom_codex_rules=c_rules,
+            custom_codex_hooks=c_hooks,
             custom_agy_config=a_config,
             custom_agy_rules=a_rules,
             custom_agy_hooks=a_hooks,

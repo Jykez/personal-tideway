@@ -392,3 +392,26 @@ class AgyHookEvidence:
             "details": self.details,
             "conflict_reason": self.conflict_reason,
         }
+
+
+@dataclass(frozen=True)
+class CodexHookEvidence:
+    """Typed structural evidence of Codex lifecycle hook configuration."""
+    status: HookStatus
+    event: str
+    command: str
+    target_path: Path
+    installed: bool
+    details: str
+    conflict_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status.value,
+            "event": self.event,
+            "command": self.command,
+            "target_path": str(self.target_path),
+            "installed": self.installed,
+            "details": self.details,
+            "conflict_reason": self.conflict_reason,
+        }

@@ -6,6 +6,30 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev8] - 2026-09-15
+
+### English
+
+- Implemented Phase 4C-B: safe Codex SessionStart lifecycle hook provisioning and handler support.
+- Added canonical hook group appended under `hooks.SessionStart` in Codex `hooks.json` with exact matcher `^(startup|resume|clear|compact)$`, command `ptw hook codex-session-start`, timeout 30, and additionalContextLimit 2500.
+- Implemented `ptw hook codex-session-start` handler that reads bounded UTF-8 JSON payload from stdin, requires `hook_event_name == "SessionStart"`, `source` in `startup/resume/clear/compact`, and nonempty absolute `cwd` without NUL bytes; strictly resolves registered projects without auto-registration, retrieves bounded Personal Tideway context once, sanitizes all errors, never reads `transcript_path`, and returns exactly `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": rendered}}`. Validation failure makes zero backend calls.
+- Extended lifecycle CLI commands (`ptw hook status`, `ptw hook plan`, `ptw hook install [--dry-run]`, `ptw hook remove [--dry-run]`) to support `--client {agy, codex}` with agy remaining the default.
+- Added global `--codex-hooks` CLI flag, `custom_codex_hooks` configuration field, default path `~/.codex/hooks.json`, and `client_paths` persistence.
+- Enforced strict protection of Codex `hooks.json`: semantic preservation of unrelated top-level keys, hook events, and array items; atomic writes; backups created before modifications; and refusal of oversized files, duplicate object keys, malformed JSON, non-object roots, symlink hazards, non-object `hooks`, or non-array `SessionStart`.
+- Added detection of inline Tideway command collisions recursively below top-level `[hooks]` in `config.toml` using `tomlkit`; malformed/unreadable `config.toml` or collisions report conflict without ever mutating `config.toml` or `hooks.state`.
+- Added typed structural evidence (`CodexHookEvidence`) surfaced in `ptw status` and `ptw doctor`, while strictly preserving continuity assurance levels (`instructed`, `manual`, `unavailable`). Verified disposable capability probe passed independently on 2026-09-15 (see [CODEX_HOOK_PROBE.md](docs/CODEX_HOOK_PROBE.md)) validating negative control, interactive TUI trust review, single backend invocation, and exact model marker for startup without security bypass; agy 1.2.2 disposable probe already passed earlier, and Codex `/hooks` review does not apply to agy. Completion of this probe finishes the Phase 4C-B slice; agent integration overall remains partial, and stop/checkpoint lifecycle integration is explicitly scheduled as the next separate slice.
+
+### Русский
+
+- Реализована Фаза 4C-B: безопасная инициализация и обработка нативного хука жизненного цикла SessionStart для Codex.
+- Добавлена каноническая группа хуков, добавляемая в `hooks.SessionStart` файла `hooks.json` Codex с точным matcher `^(startup|resume|clear|compact)$`, командой `ptw hook codex-session-start`, timeout 30 и additionalContextLimit 2500.
+- Реализован обработчик `ptw hook codex-session-start`, считывающий ограниченный UTF-8 JSON-payload из stdin, требующий `hook_event_name == "SessionStart"`, `source` из `startup/resume/clear/compact` и непустой абсолютный `cwd` без NUL-байтов; строго разрешает зарегистрированный проект без авторегистрации, единожды запрашивает ограниченный контекст Personal Tideway, санитизирует ошибки, никогда не читает `transcript_path` и возвращает строго `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": rendered}}`. Ошибки валидации выполняют ровно 0 обращений к бэкенду.
+- Расширены команды CLI управления жизненным циклом (`ptw hook status`, `ptw hook plan`, `ptw hook install [--dry-run]`, `ptw hook remove [--dry-run]`) для поддержки `--client {agy, codex}`, где agy остаётся клиентом по умолчанию.
+- Добавлен глобальный флаг CLI `--codex-hooks`, поле конфигурации `custom_codex_hooks`, путь по умолчанию `~/.codex/hooks.json` и сохранение в `client_paths`.
+- Обеспечена строгая защита `hooks.json` Codex: семантическое сохранение посторонних ключей, событий и элементов списков; атомарная запись; создание бэкапов перед изменениями; отказ от работы при файлах чрезмерного размера, дубликатах ключей, некорректном JSON, корнях-не-объектах, рисках симлинков, `hooks`-не-объектах или `SessionStart`-не-массивах.
+- Добавлено рекурсивное обнаружение коллизий команды Tideway под секцией верхнего уровня `[hooks]` в `config.toml` через `tomlkit`; некорректный/нечитаемый `config.toml` или коллизии вызывают конфликт без изменения `config.toml` или `hooks.state`.
+- Добавлены типизированные структурные свидетельства (`CodexHookEvidence`), отображаемые в `ptw status` и `ptw doctor`, при этом уровни continuity assurance строго сохраняются (`instructed`, `manual`, `unavailable`). Одноразовый зонд функциональности успешно пройден независимо 15.09.2026 (см. [CODEX_HOOK_PROBE.md](docs/CODEX_HOOK_PROBE.md)) с подтверждением отрицательного контроля, проверки trust в TUI, единственного вызова бэкенда и точного маркера модели для startup без обхода защит; одноразовый зонд agy 1.2.2 был успешно пройден ранее, а процедура ревью `/hooks` к agy не применяется. Завершение зонда финализирует срез Фазы 4C-B; общая интеграция агентов остаётся в статусе Partial, а жизненный цикл stop/checkpoint вынесен в следующий отдельный этап.
+
 ## [0.1.0.dev7] - 2026-09-14
 
 ### English
