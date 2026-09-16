@@ -40,6 +40,7 @@ Available and covered by automated tests:
   checkpoint writes through Basic Memory;
 - safe CLI bridge for bounded project context retrieval (`ptw context show`,
   `ptw context search`) and idempotent checkpoint persistence (`ptw checkpoint`);
+- runnable, tested checkpoint handoff workflow between Codex and agy via the canonical CLI bridge and initial-context lifecycle handlers (see [CHECKPOINT_HANDOFF.md](docs/CHECKPOINT_HANDOFF.md));
 - canonical shared continuity policy and minimal shared continuity skill
   provisioned on init and projected via sync to Codex and agy;
 - typed, evidence-backed continuity assurance evaluator reporting instructed,
@@ -55,7 +56,7 @@ Available and covered by automated tests:
 Still under construction:
 
 - durable live client hook assurance verification (evaluator reports `instructed`, `manual`, or `unavailable`; disposable capability probe does not auto-promote live assurance without active installed/enabled/trust/digest evidence);
-- stop/checkpoint lifecycle integration (explicitly scheduled as the next separate slice);
+- automatic stop/exit lifecycle hook capture (clients currently expose no native stop event; checkpointing remains explicit/instructed via CLI);
 - projection parity and live synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.

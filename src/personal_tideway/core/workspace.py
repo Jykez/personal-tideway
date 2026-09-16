@@ -37,18 +37,27 @@ DEFAULT_CONTINUITY_RULE_TEMPLATE = """# Personal Tideway Continuity Policy
 2. Checkpoint triggers:
    - Create a checkpoint (`ptw checkpoint`) when meaningful work is completed, key architectural decisions are made, external system state changes, the task ends with pending items or blockers, or context compaction is imminent.
 
-3. Concise retention:
+3. Structured payload & protocol:
+   - Checkpoint payloads must conform to the canonical `CheckpointPayload` JSON schema: `condition`, `objective`, `completed`, `blockers`, `verification_status`, `next_safe_action`, `source_client`, and `evidence`.
+   - Explicitly identify the client in `source_client` (`"codex"` or `"agy"`).
+   - Never report unverified outcomes as `"verified"`; use `"partial"`, `"planned"`, or `"blocked"` when pending checks or blockers remain.
+   - Use safe stdin transport without shell parameter interpolation (e.g. quoted heredocs `cat <<'EOF' | ptw checkpoint --stdin`) or safe regular files (`--file`).
+   - Always target an explicitly registered project (`--project <project-id>` or verify cwd resolution against registered paths).
+
+4. Concise retention & safety:
    - Store only curated facts, verified outcomes, active blockers, and the next safe action.
    - Never store raw conversation transcripts, verbose logs, or full file dumps.
+   - No secrets: never record credentials, tokens, API keys, passwords, or private environment variables in checkpoints. Any detected secret pattern rejects persistence immediately.
 
-4. No secrets:
-   - Never record credentials, tokens, API keys, passwords, or private environment variables in checkpoints.
+5. Verified persistence & fail-closed error handling:
+   - Always verify the CLI outcome: confirmed persistence returns `written` (new/changed state) or `unchanged` (idempotent skip).
+   - Never claim a checkpoint was saved if the command fails, returns non-zero exit code, or times out.
+   - Use `--dry-run` to preview persistence operations safely without modifying project memory.
 
-5. Verified persistence:
-   - Ensure checkpoints are explicitly recorded and verified through the Personal Tideway CLI (`written` or `unchanged`).
-   - Do not assume unverified background capture or native lifecycle hooks without explicit CLI confirmation.
+6. Template preservation:
+   - User edits to canonical rule and skill templates are preserved on subsequent `ptw init` and `ptw sync` runs without overwrite.
 
-6. On-demand skill:
+7. On-demand skill:
    - Consult the `continuity` skill for command usage, schema parameters, character budgets, and structured checkpoint templates.
 """
 
@@ -92,30 +101,82 @@ The payload must be a JSON object containing:
 - `source_client`: String, `"codex"` or `"agy"`.
 - `evidence`: Array of strings referencing relative paths or test outcomes (no absolute paths or `..`).
 
-### Example Checkpoint Payload
-```json
+### Safe Stdin Protocol (No Shell Interpolation)
+Pass JSON payloads through stdin using quoted heredocs (`<<'EOF'`) to prevent variable expansion, command injection, or escaping issues:
+
+```bash
+# 1. Preview planned checkpoint without modifying memory (dry run)
+cat <<'EOF' | ptw checkpoint --stdin --project alpha-repo --dry-run --json
 {
-  "condition": "Development workspace configured, core models implemented",
-  "objective": "Complete Phase 4B continuity policy and assurance reporting",
+  "condition": "Auth models implemented, test suite configured",
+  "objective": "Complete user authentication service",
   "completed": [
-    "Provisioned canonical continuity rule and skill on workspace init",
-    "Implemented typed assurance evaluator and CLI status reporting"
+    "Implemented JWT signing and bcrypt password hashing",
+    "Verified unit tests in tests/test_auth.py"
   ],
   "blockers": [],
   "verification_status": "verified",
-  "next_safe_action": "Run focused test suite to verify idempotency and non-overwrite",
+  "next_safe_action": "Integrate auth middleware with HTTP routing layer",
   "source_client": "codex",
   "evidence": [
-    "tests/test_continuity_assurance.py:45",
-    "docs/PERSONAL_TIDEWAY_V2_SPEC.md#L525"
+    "tests/test_auth.py:24",
+    "src/auth/jwt.py"
   ]
 }
+EOF
+
+# 2. Persist verified completed work from Codex
+cat <<'EOF' | ptw checkpoint --stdin --project alpha-repo --json
+{
+  "condition": "Auth models implemented, test suite configured",
+  "objective": "Complete user authentication service",
+  "completed": [
+    "Implemented JWT signing and bcrypt password hashing",
+    "Verified unit tests in tests/test_auth.py"
+  ],
+  "blockers": [],
+  "verification_status": "verified",
+  "next_safe_action": "Integrate auth middleware with HTTP routing layer",
+  "source_client": "codex",
+  "evidence": [
+    "tests/test_auth.py:24",
+    "src/auth/jwt.py"
+  ]
+}
+EOF
+
+# 3. Persist work with pending blockers or partial verification from agy
+cat <<'EOF' | ptw checkpoint --stdin --project alpha-repo --json
+{
+  "condition": "Routing middleware drafted, database pool connection failing",
+  "objective": "Connect auth middleware to primary database",
+  "completed": [
+    "Created database connection pool config"
+  ],
+  "blockers": [
+    "PostgreSQL replica latency exceeds 500ms under load",
+    "Awaiting firewall rule update for replica port"
+  ],
+  "verification_status": "partial",
+  "next_safe_action": "Run replication latency diagnostic after network rule apply",
+  "source_client": "agy",
+  "evidence": [
+    "logs/db_pool.log:12",
+    "config/database.yaml"
+  ]
+}
+EOF
 ```
 
-### Operational Rules
-- **Idempotency**: Submitting an identical checkpoint payload is safely skipped (`unchanged`).
-- **Dry-run**: Test persistence with `--dry-run` to preview changes without mutating memory.
-- **Safety**: Do NOT embed secrets, tokens, API keys, or raw chat transcripts. Payloads containing secret patterns are rejected.
+### Operational Rules & Verification
+- **Explicit Project Selection**: Always specify `--project <project-id>` unless executing directly inside a registered project directory.
+- **Idempotency**: Submitting an identical checkpoint payload is safely skipped (`unchanged`). Repeating a checkpoint does not append duplicates or alter timestamps.
+- **Dry-run First**: Use `--dry-run` to preview the planned operation and fingerprint before mutating memory.
+- **Result Verification**: Verify the CLI response JSON (`"written": true` or `"unchanged": true`). If exit code is non-zero, the checkpoint is NOT saved.
+- **Never Fake Success**: If the CLI returns an error or backend failure occurs, report the failure accurately; do not assume the checkpoint was written.
+- **Client Hand-off**: When switching from Codex to agy (or vice versa), the next client receives the updated `Current State` on session startup through its initial-context hook or `ptw context show`.
+- **Safety**: Do NOT embed secrets, tokens, API keys, or raw chat transcripts. Payloads containing secret patterns are rejected before execution.
+- **Template Customization**: Existing user modifications to this skill and policy are preserved across `ptw init` and `ptw sync`.
 """
 
 

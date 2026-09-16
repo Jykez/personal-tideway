@@ -6,6 +6,28 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev9] - 2026-09-16
+
+### English
+
+- Implemented Phase 4C-C: explicit checkpoint and context handoff slice between Codex and Antigravity (`agy`).
+- Added explicit, scriptable checkpointing protocol via `ptw checkpoint` accepting structured JSON payloads over stdin (`<<'EOF'`) with semantic validation, size limits, secret rejection, and safe fail-closed error handling.
+- Implemented automated cross-client integration coverage demonstrating end-to-end handoff: Codex session -> explicit checkpoint -> agy `PreInvocation` startup -> agy checkpoint update with blocker -> Codex `SessionStart` startup receiving updated objective, decisions, blockers, and next safe action.
+- Added comprehensive integration tests covering idempotence (semantic fingerprint matching prevents redundant backend writes), cross-project isolation (strict single-project boundary prevents context leakage), backend failure handling (fail-closed probe error without corrupted state), and security filtering (rejection of control characters, newline abuse, and credentials).
+- Conducted an adversarial review ([CHECKPOINT_ADVERSARIAL_REVIEW.md](docs/CHECKPOINT_ADVERSARIAL_REVIEW.md)) analyzing 8 threat vectors: hostile project/path traversal, hostile payload/secrets, source spoofing, backend failure, idempotency, cross-project leak, false automatic Stop claims, and memory prompt injection.
+- Honestly documented the absence of native automatic Stop/exit hooks in both Codex and agy; checkpoint capture remains explicit and manual/instructed via policy/skill prompts rather than native automated capture.
+- Independent Codex validation passed: 5 focused handoff tests and full 549-test suite passed without regressions.
+
+### Русский
+
+- Реализована Фаза 4C-C: срез явного сохранения чекпоинта и передачи контекста (handoff) между Codex и Antigravity (`agy`).
+- Добавлен явный скриптуемый протокол чекпоинтов через `ptw checkpoint`, принимающий структурированный JSON-payload через stdin (`<<'EOF'`) со строгой валидацией, лимитами размера, блокировкой секретов и гарантией fail-closed при сбоях.
+- Реализовано автоматизированное сквозное интеграционное покрытие передачи контекста между клиентами: сессия Codex -> явный чекпоинт -> запуск agy через `PreInvocation` -> обновление чекпоинта из agy с фиксацией блокера -> старт сессии Codex через `SessionStart` с получением обновленного объектива, решений, блокеров и следующего безопасного шага.
+- Добавлены всесторонние интеграционные тесты, покрывающие идемпотентность (совпадение семантического отпечатка предотвращает повторные записи в бэкенд), изоляцию между проектами (строгие границы единичного проекта исключают утечку контекста), отказоустойчивость бэкенда (гарантия fail-closed при сбое записи без повреждения состояния) и фильтрацию безопасности (отсечение управляющих символов, переводов строк и учетных данных).
+- Проведено адверсариальное ревью ([CHECKPOINT_ADVERSARIAL_REVIEW.md](docs/CHECKPOINT_ADVERSARIAL_REVIEW.md)) с анализом 8 векторов угроз: враждебные пути и path traversal, опасная нагрузка и секреты, подделка источника клиента, сбои бэкенда, идемпотентность, утечки между проектами, ложные утверждения об авто-Stop и внедрение инструкций из памяти.
+- Честно зафиксировано отсутствие нативных автоматических Stop/exit-хуков в Codex и agy; фиксация чекпоинта остается явной и обеспечивается на уровне инструкций/политик (manual/instructed) без вымышленных автоматических триггеров.
+- Независимая валидация Codex подтвердила успешное прохождение: 5 сфокусированных тестов handoff и полный набор из 549 тестов пройдены без регрессий.
+
 ## [0.1.0.dev8] - 2026-09-15
 
 ### English
