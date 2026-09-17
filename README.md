@@ -49,6 +49,7 @@ Available and covered by automated tests:
   `ptw hook remove`, `ptw hook status`, `ptw hook plan`) and bounded PreInvocation handler;
 - safe Codex initial-context lifecycle hook provisioning (`ptw hook install --client codex`,
   `ptw hook remove --client codex`, `ptw hook status --client codex`, `ptw hook plan --client codex`) and bounded SessionStart handler (`ptw hook codex-session-start`);
+- deterministic, read-only Projection Parity evaluator in `ptw status` reporting separate MCP, rules, and skills results per Codex/agy with safe sync remediation and portable MCP parity preservation;
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
 - comprehensive passing automated test suite plus real disposable smoke tests.
@@ -57,7 +58,7 @@ Still under construction:
 
 - durable live client hook assurance verification (evaluator reports `instructed`, `manual`, or `unavailable`; disposable capability probe does not auto-promote live assurance without active installed/enabled/trust/digest evidence);
 - automatic stop/exit lifecycle hook capture (clients currently expose no native stop event; checkpointing remains explicit/instructed via CLI);
-- projection parity and live synchronization for rules, skills, and MCP;
+- continuous live background synchronization for rules, skills, and MCP;
 - live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.
 

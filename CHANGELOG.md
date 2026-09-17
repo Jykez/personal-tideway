@@ -6,6 +6,32 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev10] - 2026-09-17
+
+### English
+
+- Completed the Projection Parity milestone: implemented read-only projection parity evaluation in `ptw status` across MCP, rules, and skills for both Codex and Antigravity (`agy`).
+- Added deterministic, typed evaluation returning fine-grained statuses per client and component: `in_sync`, `drift_detected`, `conflict`, `invalid`, `empty`, and `uninitialized`.
+- Provided safe, actionable remediation guidance in console text and structured JSON without mutating any client configurations, state, or backups during status evaluation.
+- Preserved unrelated client data: non-canonical user MCP servers, rules content outside managed `<!-- PAIW:START -->` / `<!-- PAIW:END -->` markers, and independent/untracked client skills remain untouched and do not cause false drift.
+- Enforced robust edge-case handling: safe capture of malformed TOML/JSON configurations and invalid rule markers reporting `invalid` instead of crashing; detection of symlink hazards (broken or escaping links), foreign skill scope leakage between clients, and deletion of canonical PTW skills tracked via `state.json`.
+- Maintained backward compatibility with `portable_mcp_parity` while providing comprehensive multidimensional projection coverage.
+- Conducted an adversarial review ([PROJECTION_PARITY_ADVERSARIAL_REVIEW.md](docs/PROJECTION_PARITY_ADVERSARIAL_REVIEW.md)) analyzing 8 threat vectors: false in_sync detection, zero mutation / read-only guarantees, unrelated data preservation, secret redaction in status reporting, malformed configs and markers, symlink hazards and scope leakage, conflict precedence over drift, and execution determinism.
+- Note on scope: this milestone provides read-only evaluation of projection parity alongside existing explicit synchronization (`ptw sync`); it does not implement or claim live background synchronization or real-client runtime proof.
+- Independent Codex verification (2026-09-17): 11 focused projection parity tests passed, full 560-test suite passed without regressions, Ruff checks on `status.py` and projection parity tests passed, `git diff --check` passed, and `uv build` passed.
+
+### Русский
+
+- Завершен этап Projection Parity (Паритет проекций): реализован механизм оценки паритета проекций в режиме read-only в `ptw status` по трем осям (MCP, правила и навыки) для Codex и Antigravity (`agy`).
+- Добавлена детерминированная типизированная оценка с гранулярными статусами для каждого клиента и компонента: `in_sync`, `drift_detected`, `conflict`, `invalid`, `empty` и `uninitialized`.
+- Обеспечен вывод безопасных рекомендаций по устранению расхождений (remediation) в консольном выводе и структурированном JSON без каких-либо мутаций клиентских конфигураций, состояния или бэкапов в процессе проверки статуса.
+- Гарантирована сохранность несвязанных данных клиентов: неканонические пользовательские MCP-серверы, текст правил вне управляемых маркеров `<!-- PAIW:START -->` / `<!-- PAIW:END -->` и независимые навыки клиентов остаются нетронутыми и не вызывают ложного дрифта.
+- Реализована устойчивая обработка краевых случаев: безопасный перехват синтаксических ошибок в TOML/JSON-конфигурациях и поврежденных маркеров правил со статусом `invalid` без сбоев; детекция угроз символических ссылок (висячие ссылки, выход за границы), утечек скоупов навыков между клиентами и удалений канонических навыков PTW с отслеживанием по `state.json`.
+- Сохранена обратная совместимость с `portable_mcp_parity` наряду с предоставлением многомерного отчета по всем типам проекций.
+- Проведено адверсариальное ревью ([PROJECTION_PARITY_ADVERSARIAL_REVIEW.md](docs/PROJECTION_PARITY_ADVERSARIAL_REVIEW.md)) с анализом 8 векторов угроз: ложный статус in_sync, гарантии отсутствия мутаций (read-only), сохранность посторонних данных, скрытие секретов в отчете, некорректные конфиги и маркеры, риски symlink и утечки скоупов, безусловный приоритет конфликтов над дрифтом и детерминизм вычислений.
+- Ограничение области: данный этап обеспечивает read-only оценку паритета проекций в дополнение к существующей явной синхронизации (`ptw sync`); фоновая синхронизация в реальном времени и подтверждение на живых рантаймах клиентов не заявляются и не реализуются.
+- Независимая верификация Codex (17.09.2026): 11 сфокусированных тестов паритета проекций пройдены, полный набор из 560 тестов пройден без регрессий, проверки Ruff для `status.py` и тестов паритета проекций пройдены, `git diff --check` пройден, сборка `uv build` успешна.
+
 ## [0.1.0.dev9] - 2026-09-16
 
 ### English

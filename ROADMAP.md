@@ -15,9 +15,9 @@ Tideway будет хранить только текущий этап, реше
 | Done | Project identity / Идентификация проектов | Register Git, directory, and external projects outside source trees |
 | Done | Basic Memory | Isolated installation, health checks, and project reconciliation |
 | Done | Context loop / Контекстный цикл | Retrieve a bounded context bundle and write concise checkpoints |
-| Partial | Agent integration / Интеграция агентов | CLI bridge, shared policy/skill, assurance, initial lifecycle hooks, and explicit checkpoint handoff done (disposable probes passed for agy/Codex; native automatic stop capture unavailable; Projection parity next milestone) / Готовы CLI-мост, общая политика/навык, assurance, хуки начального контекста и явный handoff чекпоинтов (зонды agy/Codex пройдены; нативный автоматический stop capture отсутствует; паритет проекций — следующий этап) |
-| Planned | Projection parity / Общие возможности | Current MCP, rules, and skills projection for both clients |
-| Planned | Migration / Миграция | Plan, dry-run, backup, apply, and rollback from the legacy workspace |
+| Partial | Agent integration / Интеграция агентов | CLI bridge, shared policy/skill, assurance, initial lifecycle hooks, and explicit checkpoint handoff done (disposable probes passed for agy/Codex; native automatic stop capture unavailable) / Готовы CLI-мост, общая политика/навык, assurance, хуки начального контекста и явный handoff чекпоинтов (зонды agy/Codex пройдены; нативный автоматический stop capture отсутствует) |
+| Done | Projection parity / Общие возможности | Read-only projection parity reporting across MCP, rules, and skills for Codex and agy, and existing explicit sync projection / Отчёт о паритете проекций MCP, правил и навыков в режиме чтения для Codex и agy, а также существующая явная проекция через синхронизацию |
+| Planned | Migration / Миграция | Next milestone: plan, dry-run, backup, apply, and rollback from the legacy workspace / Следующий этап: планирование, dry-run, бэкап, применение и откат из устаревшего рабочего пространства |
 | Planned | Public alpha / Публичная alpha | Installer, onboarding, CI, documentation, license, and release artifacts |
 
 ## Working protocol / Рабочий протокол
