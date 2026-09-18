@@ -305,6 +305,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_migrate_plan = migrate_subs.add_parser("plan", help="Preview migration plan without modifying files")
     p_migrate_plan.add_argument("--json", action="store_true", help="Output plan in JSON format")
 
+    p_migrate_apply = migrate_subs.add_parser("apply", help="Apply v1 to v2 migration plan")
+    p_migrate_apply.add_argument("--dry-run", action="store_true", help="Preview exact migration mutations without modifying files")
+    p_migrate_apply.add_argument("--json", action="store_true", help="Output in JSON format")
+
     return parser
 
 
@@ -1027,6 +1031,33 @@ def handle_migrate(args: argparse.Namespace) -> int:
             print(json.dumps(plan.to_dict(), indent=2, sort_keys=True))
         else:
             print(format_migration_plan_text(plan))
+        return ExitCode.SUCCESS
+
+    elif args.migrate_command == "apply":
+        from personal_tideway.core.migration import STATUS_BLOCKED
+        from personal_tideway.core.migration_apply import (
+            apply_migration,
+            format_migration_apply_text,
+        )
+
+        dry_run = getattr(args, "dry_run", False)
+        result = apply_migration(
+            home=args.home,
+            codex_home=args.codex_home,
+            gemini_home=args.gemini_home,
+            codex_hooks=getattr(args, "codex_hooks", None),
+            agy_hooks=getattr(args, "agy_hooks", None),
+            dry_run=dry_run,
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(format_migration_apply_text(result))
+
+        if result.status == STATUS_BLOCKED:
+            return ExitCode.CONFIG_ERROR
+        if result.status in ("rolled_back", "rollback_failed"):
+            return ExitCode.CONFIG_ERROR
         return ExitCode.SUCCESS
 
     return ExitCode.VALIDATION_ERROR

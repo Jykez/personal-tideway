@@ -996,7 +996,7 @@ def plan_migration(
                     )
                 else:
                     current_skill_names.add(entry.name)
-            if agy_legacy_skills_found and (legacy_skill_names.intersection(current_skill_names) or (legacy_skill_names and current_skill_names)):
+            if agy_legacy_skills_found and legacy_skill_names.intersection(current_skill_names):
                 blockers.append(
                     "Source and destination conflict detected: skills exist in both legacy and current roots"
                 )

@@ -107,6 +107,11 @@ def ensure_safe_path(target: Path, base: Path, label: str = "Path", follow_symli
 def safe_remove_link_or_dir(target: Path, allowed_root: Path, dry_run: bool = False) -> bool:
     """Remove a symlink or directory safely inside allowed_root."""
     ensure_safe_path(target, allowed_root, "Removal target", follow_symlinks=False)
+    try:
+        if target.resolve() == allowed_root.resolve():
+            raise ValidationError(f"Removal target '{target}' cannot be the allowed root itself '{allowed_root}'")
+    except OSError:
+        pass
     if dry_run:
         return target.exists() or target.is_symlink()
 
