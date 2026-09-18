@@ -298,6 +298,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Handle Codex SessionStart hook event (reads stdin payload)",
     )
 
+    # 13. migrate
+    p_migrate = subparsers.add_parser("migrate", help="Schema and workspace migration operations")
+    migrate_subs = p_migrate.add_subparsers(dest="migrate_command", required=True)
+
+    p_migrate_plan = migrate_subs.add_parser("plan", help="Preview migration plan without modifying files")
+    p_migrate_plan.add_argument("--json", action="store_true", help="Output plan in JSON format")
+
     return parser
 
 
@@ -1001,6 +1008,30 @@ def handle_hook(
     return ExitCode.SUCCESS
 
 
+def handle_migrate(args: argparse.Namespace) -> int:
+    """Handler for 'ptw migrate' subcommands."""
+    if args.migrate_command == "plan":
+        from personal_tideway.core.migration import (
+            format_migration_plan_text,
+            plan_migration,
+        )
+
+        plan = plan_migration(
+            home=args.home,
+            codex_home=args.codex_home,
+            gemini_home=args.gemini_home,
+            codex_hooks=getattr(args, "codex_hooks", None),
+            agy_hooks=getattr(args, "agy_hooks", None),
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(plan.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(format_migration_plan_text(plan))
+        return ExitCode.SUCCESS
+
+    return ExitCode.VALIDATION_ERROR
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -1014,6 +1045,9 @@ def main(
     args = parser.parse_args(clean_argv)
 
     try:
+        if args.top_command == "migrate":
+            return handle_migrate(args)
+
         # Resolve configuration
         cfg = PersonalTidewayConfig.resolve(
             home=args.home,
@@ -1102,7 +1136,7 @@ def main(
             return handle_hook(cfg, args, runner=runner)
 
     except PersonalTidewayError as e:
-        json_command = args.top_command in {"context", "checkpoint", "hook"}
+        json_command = args.top_command in {"context", "checkpoint", "hook", "migrate"}
         if json_command and getattr(args, "json", False):
             safe_error_msg = str(e)
             if "not initialized at" in safe_error_msg:
@@ -1117,7 +1151,7 @@ def main(
         sys.stderr.write(f"Error: {e}\n")
         return int(e.exit_code)
     except Exception as e:
-        json_command = args.top_command in {"context", "checkpoint", "hook"}
+        json_command = args.top_command in {"context", "checkpoint", "hook", "migrate"}
         if json_command and getattr(args, "json", False):
             err_doc = {
                 "error": "An unexpected error occurred.",
