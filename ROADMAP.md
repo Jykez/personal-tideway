@@ -17,7 +17,7 @@ Tideway будет хранить только текущий этап, реше
 | Done | Context loop / Контекстный цикл | Retrieve a bounded context bundle and write concise checkpoints |
 | Partial | Agent integration / Интеграция агентов | CLI bridge, shared policy/skill, assurance, initial lifecycle hooks, and explicit checkpoint handoff done (disposable probes passed for agy/Codex; native automatic stop capture unavailable) / Готовы CLI-мост, общая политика/навык, assurance, хуки начального контекста и явный handoff чекпоинтов (зонды agy/Codex пройдены; нативный автоматический stop capture отсутствует) |
 | Done | Projection parity / Общие возможности | Read-only projection parity reporting across MCP, rules, and skills for Codex and agy, and existing explicit sync projection / Отчёт о паритете проекций MCP, правил и навыков в режиме чтения для Codex и agy, а также существующая явная проекция через синхронизацию |
-| Planned | Migration / Миграция | Next milestone: plan, dry-run, backup, apply, and rollback from the legacy workspace / Следующий этап: планирование, dry-run, бэкап, применение и откат из устаревшего рабочего пространства |
+| Partial | Migration / Миграция | Plan, dry-run, transactional backup/apply, public rollback, and sanitized E2E fixtures are done; live backup, migration, rollback, and smoke acceptance remain / Готовы планирование, dry-run, транзакционный backup/apply, публичный rollback и обезличенные E2E fixtures; остаются живой backup, миграция, rollback и smoke-приёмка |
 | Planned | Public alpha / Публичная alpha | Installer, onboarding, CI, documentation, license, and release artifacts |
 
 ## Working protocol / Рабочий протокол

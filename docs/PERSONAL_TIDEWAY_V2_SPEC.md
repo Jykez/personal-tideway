@@ -636,6 +636,7 @@ ptw sync [--dry-run]
 ptw doctor [--json]
 ptw migrate plan
 ptw migrate apply [--dry-run]
+ptw migrate rollback MANIFEST_OR_BUNDLE [--dry-run] [--json]
 ```
 
 ### 15.2 Projects
@@ -732,6 +733,9 @@ ptw status
 ptw migrate plan
 ptw migrate apply --dry-run
 ptw migrate apply
+# Recovery only, using the bundle ID or manifest path reported by apply:
+ptw migrate rollback MANIFEST_OR_BUNDLE --dry-run
+ptw migrate rollback MANIFEST_OR_BUNDLE
 ptw sync --dry-run
 ptw sync
 ptw doctor

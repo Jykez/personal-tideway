@@ -309,6 +309,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_migrate_apply.add_argument("--dry-run", action="store_true", help="Preview exact migration mutations without modifying files")
     p_migrate_apply.add_argument("--json", action="store_true", help="Output in JSON format")
 
+    p_migrate_rollback = migrate_subs.add_parser("rollback", help="Restore a migration backup bundle")
+    p_migrate_rollback.add_argument("manifest", help="Bundle ID or manifest path reported by migrate apply")
+    p_migrate_rollback.add_argument("--dry-run", action="store_true", help="Validate and preview rollback without modifying files")
+    p_migrate_rollback.add_argument("--json", action="store_true", help="Output in JSON format")
+
     return parser
 
 
@@ -1058,6 +1063,38 @@ def handle_migrate(args: argparse.Namespace) -> int:
             return ExitCode.CONFIG_ERROR
         if result.status in ("rolled_back", "rollback_failed"):
             return ExitCode.CONFIG_ERROR
+        return ExitCode.SUCCESS
+
+    elif args.migrate_command == "rollback":
+        from personal_tideway.core.migration_apply import (
+            MigrationRollbackError,
+            format_migration_rollback_text,
+            rollback_migration,
+            sanitize_error_message,
+        )
+
+        try:
+            result = rollback_migration(
+                args.manifest,
+                home=args.home,
+                codex_home=args.codex_home,
+                gemini_home=args.gemini_home,
+                dry_run=getattr(args, "dry_run", False),
+            )
+        except ValidationError as exc:
+            raise MigrationRollbackError("Migration manifest is outside the allowed backup root") from exc
+        except MigrationRollbackError as exc:
+            roots = tuple(
+                Path(path).expanduser()
+                for path in (args.home, args.codex_home, args.gemini_home)
+                if path is not None
+            )
+            raise MigrationRollbackError(sanitize_error_message(exc, roots)) from exc
+
+        if getattr(args, "json", False):
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(format_migration_rollback_text(result))
         return ExitCode.SUCCESS
 
     return ExitCode.VALIDATION_ERROR

@@ -50,6 +50,8 @@ Available and covered by automated tests:
 - safe Codex initial-context lifecycle hook provisioning (`ptw hook install --client codex`,
   `ptw hook remove --client codex`, `ptw hook status --client codex`, `ptw hook plan --client codex`) and bounded SessionStart handler (`ptw hook codex-session-start`);
 - deterministic, read-only Projection Parity evaluator in `ptw status` reporting separate MCP, rules, and skills results per Codex/agy with safe sync remediation and portable MCP parity preservation;
+- explicit v1-to-v2 migration planning, transactional apply, retained backup manifests,
+  and public dry-run-capable rollback validated against sanitized temporary homes;
 - safe dry-run and fail-closed operational boundaries;
 - the earlier MCP, rules, skills, conflict, backup, and dry-run engine;
 - comprehensive passing automated test suite plus real disposable smoke tests.
@@ -75,7 +77,28 @@ Personal Tideway integrates with Codex CLI (0.152.0) using its native hook contr
 - **Layering and trust model:** Codex hook layers are additive (not override); matching hook commands can run concurrently. Project-level hooks only run in trusted projects. User-level hooks require manual approval via `/hooks` or initial trust review in the Codex TUI. The installer never writes trust hashes and never bypasses client security prompts. Explicitly disabled hooks or managed-only policies may prevent hook execution.
 - **Handler boundaries:** The `codex-session-start` handler only serves strictly registered projects (no automatic project registration), ignores conversation transcript dumps, and executes exactly one bounded context retrieval (max 5 items, 8,000 characters), returning a `hookSpecificOutput` payload with `additionalContext`.
 - **Assurance and behavioral probe status:** Structural presence in `ptw status` or `ptw doctor` reports assurance strictly among `instructed`, `manual`, or `unavailable` (`hook_verified` remains `False`; no `incapable` level exists in the evaluator). The isolated disposable capability probe passed on 2026-09-15 without security bypass (see [CODEX_HOOK_PROBE.md](docs/CODEX_HOOK_PROBE.md)), validating the negative control (`NO_INITIAL_CONTEXT`), TUI trust review, Codex-computed digest, single backend retrieval, and exact model marker `PTW_CODEX_4CB_92E8B6D1` for `startup`. Live configs were not changed, and disposable success does not automatically promote live assurance to `hooked`.
-- **Next steps:** Stop/checkpoint lifecycle integration is explicitly scheduled as the next separate slice; no migration, feature parity, or public alpha is claimed yet.
+- **Next steps:** Stop/checkpoint lifecycle integration remains a separate slice. Sanitized migration fixtures are covered, but no live migration, live rollback, or public alpha is claimed yet.
+
+## Migration recovery workflow
+
+Migration remains an explicit operator action. Review the plan and dry run before
+applying it. A successful apply reports both a bundle ID and a manifest path;
+either value can be passed to rollback.
+
+```bash
+ptw migrate plan
+ptw migrate apply --dry-run
+ptw migrate apply
+ptw migrate rollback <bundle-id-or-manifest-path> --dry-run
+ptw migrate rollback <bundle-id-or-manifest-path>
+```
+
+Rollback validates the retained manifest and backup hashes before mutation,
+restores original bytes and modes, removes transaction-created destinations,
+and preserves newly written central-memory files. Add `--json` to any command
+when machine-readable evidence is required. This workflow is covered only with
+generated fixtures at this stage; do not run it against live client homes
+without a separately reviewed backup and acceptance plan.
 
 ## Data layout
 

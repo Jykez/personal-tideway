@@ -142,6 +142,7 @@ class MigrationRollbackResult:
     """Encapsulates the result of a rollback execution."""
 
     status: str
+    dry_run: bool
     manifest_path: str
     restored_entries: list[str]
     cleaned_destinations: list[str]
@@ -151,6 +152,7 @@ class MigrationRollbackResult:
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "status": self.status,
+            "dry_run": self.dry_run,
             "manifest_path": self.manifest_path,
             "restored_entries": list(self.restored_entries),
             "cleaned_destinations": list(self.cleaned_destinations),
@@ -253,6 +255,7 @@ def format_migration_rollback_text(result: MigrationRollbackResult) -> str:
         "Migration Rollback Report",
         "========================",
         f"Status: {result.status}",
+        f"Dry Run: {'true' if result.dry_run else 'false'}",
         f"Manifest: {result.manifest_path}",
     ]
     if result.error is not None:
@@ -265,7 +268,6 @@ def format_migration_rollback_text(result: MigrationRollbackResult) -> str:
             lines.append(f"  - {r}")
     else:
         lines.append("  (none)")
-
     lines.append("")
     lines.append("Cleaned Destinations:")
     if result.cleaned_destinations:
@@ -1459,12 +1461,17 @@ def rollback_migration(
         .resolve()
     )
 
+    allowed_backup_root = resolved_home / "backups" / "migrations"
     manifest_p = Path(manifest_path).expanduser()
     if not manifest_p.is_absolute():
-        manifest_p = resolved_home / "backups" / "migrations" / manifest_p
+        if manifest_p.parts[:2] == ("backups", "migrations"):
+            manifest_p = resolved_home / manifest_p
+        else:
+            manifest_p = allowed_backup_root / manifest_p
+    if manifest_p.is_dir():
+        manifest_p /= "manifest.json"
 
     # Validate manifest boundary
-    allowed_backup_root = resolved_home / "backups" / "migrations"
     ensure_safe_path(manifest_p, allowed_backup_root, "Migration manifest", follow_symlinks=False)
 
     if _has_symlink_component(manifest_p):
@@ -1487,11 +1494,11 @@ def rollback_migration(
 
     manifest_version = manifest_data.get("manifest_version")
     if manifest_version != MANIFEST_VERSION:
-        raise MigrationRollbackError(f"Unsupported manifest version: {manifest_version}")
+        raise MigrationRollbackError("Unsupported manifest version")
 
     state = manifest_data.get("state")
     if state not in VALID_MANIFEST_STATES:
-        raise MigrationRollbackError(f"Invalid manifest state: {state}")
+        raise MigrationRollbackError("Invalid manifest state")
 
     if state == STATE_PREPARING:
         raise MigrationRollbackError("Incomplete transaction manifest (state='preparing') cannot be rolled back")
@@ -1501,64 +1508,167 @@ def rollback_migration(
     if not isinstance(entries, list):
         raise MigrationRollbackError("Malformed manifest: entries must be a list")
 
-    # Idempotent skip if already rolled back
-    if state == STATE_ROLLED_BACK:
-        return MigrationRollbackResult(
-            status="rolled_back",
-            manifest_path=str(manifest_p.relative_to(resolved_home)),
-            restored_entries=[e.get("symbolic_id", "") for e in entries if e.get("existed_before")],
-            cleaned_destinations=manifest_data.get("destinations_created", []),
-            preserved_memory=[],
-        )
+    destinations_created = manifest_data.get("destinations_created", [])
+    if not isinstance(destinations_created, list) or any(
+        not isinstance(destination, str)
+        or not destination
+        or destination.strip() in (".", "/", "\\")
+        or _is_path_traversal(destination)
+        or Path(destination).is_absolute()
+        for destination in destinations_created
+    ):
+        raise MigrationRollbackError("Malformed destinations_created in manifest")
 
-    # Validate all entries before mutating anything
+    # Validate every untrusted entry structurally before any early return or mutation.
     for entry in entries:
         if not isinstance(entry, dict):
             raise MigrationRollbackError("Malformed entry in manifest")
 
+        symbolic_id = entry.get("symbolic_id")
+        if (
+            not isinstance(symbolic_id, str)
+            or not symbolic_id
+            or len(symbolic_id) > 1024
+            or any(ord(character) < 32 for character in symbolic_id)
+        ):
+            raise MigrationRollbackError("Invalid symbolic_id in manifest entry")
+
         root_key = entry.get("root_key")
         if root_key not in ("ptw_home", "codex_home", "gemini_home"):
-            raise MigrationRollbackError(f"Invalid root_key '{root_key}' in manifest entry")
+            raise MigrationRollbackError("Invalid root_key in manifest entry")
 
         rel_path = entry.get("rel_path")
         if (
-            not rel_path
+            not isinstance(rel_path, str)
+            or not rel_path
             or rel_path.strip() in (".", "/", "\\")
             or _is_path_traversal(rel_path)
             or Path(rel_path).is_absolute()
         ):
-            raise MigrationRollbackError(f"Unsafe path in manifest entry: '{rel_path}'")
+            raise MigrationRollbackError("Unsafe path in manifest entry")
+
+        existed_before = entry.get("existed_before")
+        if not isinstance(existed_before, bool):
+            raise MigrationRollbackError("Invalid existed_before in manifest entry")
+
+        entry_type = entry.get("entry_type")
+        if entry_type not in ("file", "directory"):
+            raise MigrationRollbackError("Invalid entry_type in manifest entry")
+
+        mode = entry.get("mode")
+        if not isinstance(mode, int) or isinstance(mode, bool) or not 0 <= mode <= 0o777:
+            raise MigrationRollbackError("Invalid mode in manifest entry")
 
         root_dir = resolved_home if root_key == "ptw_home" else (
             resolved_codex_home if root_key == "codex_home" else resolved_gemini_home
         )
         target_check = root_dir / rel_path
         if target_check.resolve() == root_dir.resolve():
-            raise MigrationRollbackError(f"Manifest entry '{rel_path}' resolves to root directory '{root_dir}'")
+            raise MigrationRollbackError("Manifest entry resolves to a protected root directory")
         if _has_symlink_component(target_check):
             raise MigrationRollbackError("Symlink escape detected in manifest target path")
         if not is_safe_path(target_check, root_dir, follow_symlinks=True):
             raise MigrationRollbackError("Manifest target escapes its allowed root")
 
-        if entry.get("existed_before"):
+        if existed_before and state != STATE_ROLLED_BACK:
             b_rel = entry.get("backup_rel_path")
-            if not b_rel or _is_path_traversal(b_rel) or Path(b_rel).is_absolute():
-                raise MigrationRollbackError(f"Unsafe backup_rel_path in manifest entry: '{b_rel}'")
+            if (
+                not isinstance(b_rel, str)
+                or not b_rel
+                or _is_path_traversal(b_rel)
+                or Path(b_rel).is_absolute()
+            ):
+                raise MigrationRollbackError("Unsafe backup_rel_path in manifest entry")
 
             b_file = bundle_dir / b_rel
             if _has_symlink_component(b_file):
                 raise MigrationRollbackError("Symlink escape detected: backup entry is a symbolic link")
             if not (b_file.is_file() or b_file.is_dir()):
-                raise MigrationRollbackError(f"Missing backup target: {b_rel}")
+                raise MigrationRollbackError("Missing backup target referenced by manifest")
 
-            if entry.get("entry_type") == "file":
+            if entry_type == "file":
                 expected_hash = entry.get("sha256")
+                if (
+                    not isinstance(expected_hash, str)
+                    or len(expected_hash) != 64
+                    or any(character not in "0123456789abcdef" for character in expected_hash)
+                ):
+                    raise MigrationRollbackError("Invalid content hash in manifest entry")
                 actual_hash = hash_file(b_file)
-                if expected_hash and actual_hash != expected_hash:
-                    raise TamperedBackupError(
-                        f"Tampered backup detected for entry '{entry.get('symbolic_id')}': "
-                        f"expected hash {expected_hash} does not match {actual_hash}"
-                    )
+                if actual_hash != expected_hash:
+                    raise TamperedBackupError("Tampered backup detected: content hash does not match manifest")
+
+    # Idempotent skip after structural validation, without requiring retained backup payloads.
+    if state == STATE_ROLLED_BACK:
+        return MigrationRollbackResult(
+            status="rolled_back",
+            dry_run=dry_run,
+            manifest_path=str(manifest_p.relative_to(resolved_home)),
+            restored_entries=sorted(entry["symbolic_id"] for entry in entries if entry["existed_before"]),
+            cleaned_destinations=sorted(destinations_created),
+            preserved_memory=[],
+        )
+
+    if dry_run:
+        restored_entries = sorted(entry["symbolic_id"] for entry in entries if entry["existed_before"])
+        cleaned_destinations = sorted(
+            entry["rel_path"]
+            for entry in entries
+            if not entry.get("existed_before")
+            and not (
+                entry["root_key"] == "ptw_home"
+                and (entry["rel_path"] == "memory" or entry["rel_path"].startswith("memory/"))
+            )
+        )
+        preserved_memory = {
+            entry["rel_path"]
+            for entry in entries
+            if not entry.get("existed_before")
+            and entry["root_key"] == "ptw_home"
+            and (entry["rel_path"] == "memory" or entry["rel_path"].startswith("memory/"))
+            and (resolved_home / entry["rel_path"]).exists()
+        }
+        backed_up_memory_paths = {
+            entry["rel_path"]
+            for entry in entries
+            if entry["existed_before"]
+            and entry["root_key"] == "ptw_home"
+            and (entry["rel_path"] == "memory" or entry["rel_path"].startswith("memory/"))
+        }
+        for entry in entries:
+            if (
+                entry["existed_before"]
+                and entry["entry_type"] == "file"
+                and entry["root_key"] == "ptw_home"
+                and entry["rel_path"].startswith("memory/")
+            ):
+                current_memory_file = resolved_home / entry["rel_path"]
+                if current_memory_file.is_file() and hash_file(current_memory_file) != entry["sha256"]:
+                    preserved_path = current_memory_file.with_name(f"{current_memory_file.name}.post_migration")
+                    counter = 1
+                    while preserved_path.exists():
+                        preserved_path = current_memory_file.with_name(
+                            f"{current_memory_file.name}.post_migration.{counter}"
+                        )
+                        counter += 1
+                    preserved_memory.add(str(preserved_path.relative_to(resolved_home)))
+        central_memory_dir = resolved_home / "memory"
+        if central_memory_dir.is_dir():
+            for root_m, _, files_m in os.walk(central_memory_dir, followlinks=False):
+                root_path = Path(root_m)
+                for filename in files_m:
+                    memory_file = root_path / filename
+                    rel_to_ptw = str(memory_file.relative_to(resolved_home))
+                    if rel_to_ptw not in backed_up_memory_paths:
+                        preserved_memory.add(rel_to_ptw)
+        return MigrationRollbackResult(
+            status="ready",
+            dry_run=True,
+            manifest_path=str(manifest_p.relative_to(resolved_home)),
+            restored_entries=restored_entries,
+            cleaned_destinations=cleaned_destinations,
+            preserved_memory=sorted(preserved_memory),
+        )
 
     # Acquire lock if not already provided by caller
     owns_lock = False
@@ -1671,6 +1781,7 @@ def rollback_migration(
 
         return MigrationRollbackResult(
             status="rolled_back",
+            dry_run=False,
             manifest_path=str(manifest_p.relative_to(resolved_home)),
             restored_entries=sorted(restored_entries),
             cleaned_destinations=sorted(cleaned_destinations),
