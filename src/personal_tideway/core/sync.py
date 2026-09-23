@@ -377,10 +377,6 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
     for obj_id in objects_state:
         if obj_id.startswith("skill:"):
             all_skill_names.add(obj_id[6:])
-    for s_name in codex_adapter.list_installed_skills():
-        all_skill_names.add(s_name)
-    for s_name in agy_adapter.list_installed_skills():
-        all_skill_names.add(s_name)
 
     scopes = get_skill_scopes(cfg)
 
@@ -408,7 +404,7 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
         applicable_clients = [CLIENT_CODEX, CLIENT_AGY] if scope == "shared" else [scope]
 
         ptw_exists = canonical_path.is_dir()
-        ptw_hash = hash_dir(canonical_path) if ptw_exists else None
+        skill_ptw_hash = hash_dir(canonical_path) if ptw_exists else None
 
         base_ptw_hash = base_obj.get("ptw_hash") if base_obj else None
         base_client_hashes = base_obj.get("client_hashes", {}) if base_obj else {}
@@ -432,15 +428,16 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
                 # First sync
                 if ptw_exists and not client_exists:
                     client_adapter.install_skill(s_name, canonical_path, mode=cfg.skill_link_mode, dry_run=dry_run)
+                    messages.append(f"Installed managed skill '{s_name}' on {client_name}")
                 elif not ptw_exists and client_exists:
                     # Client-only skill imported into designated client scope
                     if not dry_run:
                         canonical_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copytree(client_skill_dir, canonical_path)
-                    ptw_hash = hash_dir(canonical_path)
+                    skill_ptw_hash = hash_dir(canonical_path)
                     ptw_exists = True
                 elif ptw_exists and client_exists:
-                    if client_hash == ptw_hash:
+                    if client_hash == skill_ptw_hash:
                         pass
                     else:
                         skill_conflicted = True
@@ -450,16 +447,18 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
                             object_type="skill",
                             client=client_name,
                             base_hash=None,
-                            ptw_hash=ptw_hash,
+                            ptw_hash=skill_ptw_hash,
                             client_hash=client_hash,
-                            ptw_content=f"Directory hash: {ptw_hash}",
+                            ptw_content=f"Directory hash: {skill_ptw_hash}",
                             client_content=f"Directory hash: {client_hash}",
                             message=f"Initial divergence for skill '{s_name}' on client '{client_name}'.",
                         )
                         save_conflict_artifacts(cfg.conflicts_dir, rec, dry_run=dry_run)
                         messages.append(f"Conflict: Skill '{s_name}' diverged on {client_name}")
             else:
-                ptw_changed = (ptw_hash is not None and ptw_hash != base_ptw_hash)
+                ptw_changed = (
+                    skill_ptw_hash is not None and skill_ptw_hash != base_ptw_hash
+                )
                 client_changed = (client_hash is not None and client_hash != b_client_hash)
 
                 if b_client_hash is not None and not client_exists:
@@ -469,6 +468,7 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
                 if not ptw_changed and not client_changed:
                     if not client_exists and ptw_exists:
                         client_adapter.install_skill(s_name, canonical_path, mode=cfg.skill_link_mode, dry_run=dry_run)
+                        messages.append(f"Restored managed skill '{s_name}' on {client_name}")
                 elif ptw_changed and not client_changed:
                     client_adapter.install_skill(s_name, canonical_path, mode=cfg.skill_link_mode, dry_run=dry_run)
                     messages.append(f"Propagated skill '{s_name}' from Personal Tideway to {client_name}")
@@ -477,14 +477,14 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
                         if canonical_path.exists():
                             shutil.rmtree(canonical_path)
                         shutil.copytree(client_skill_dir, canonical_path)
-                    ptw_hash = hash_dir(canonical_path)
+                    skill_ptw_hash = hash_dir(canonical_path)
                     messages.append(f"Propagated skill '{s_name}' from {client_name} to Personal Tideway")
                     for other_c in applicable_clients:
                         if other_c != client_name:
                             other_adapter = codex_adapter if other_c == CLIENT_CODEX else agy_adapter
                             other_adapter.install_skill(s_name, canonical_path, mode=cfg.skill_link_mode, dry_run=dry_run)
                 else:
-                    if ptw_hash == client_hash:
+                    if skill_ptw_hash == client_hash:
                         messages.append(f"Accepted identical dual changes for skill '{s_name}' on {client_name}")
                     else:
                         skill_conflicted = True
@@ -494,9 +494,9 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
                             object_type="skill",
                             client=client_name,
                             base_hash=base_ptw_hash,
-                            ptw_hash=ptw_hash,
+                            ptw_hash=skill_ptw_hash,
                             client_hash=client_hash,
-                            ptw_content=f"Directory hash: {ptw_hash}",
+                            ptw_content=f"Directory hash: {skill_ptw_hash}",
                             client_content=f"Directory hash: {client_hash}",
                             message=f"Divergent changes for skill '{s_name}' on {client_name}.",
                         )
@@ -510,7 +510,7 @@ def sync_workspace(cfg: PersonalTidewayConfig, dry_run: bool = False) -> tuple[i
                 if c_path.exists():
                     new_client_hashes[c] = hash_dir(c_path) or ""
             objects_state[obj_id] = {
-                "ptw_hash": ptw_hash,
+                "ptw_hash": skill_ptw_hash,
                 "scope": scope,
                 "client_hashes": new_client_hashes,
             }

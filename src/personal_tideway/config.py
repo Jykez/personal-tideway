@@ -286,11 +286,11 @@ class PersonalTidewayConfig:
     def agy_rules(self) -> Path:
         if self.custom_agy_rules:
             return self.custom_agy_rules
-        return self.gemini_home / "GEMINI.md"
+        return self.agy_customization_root / "GEMINI.md"
 
     @property
     def agy_skills(self) -> Path:
-        return self.gemini_home / "skills"
+        return self.agy_current_skills
 
     @property
     def agy_legacy_gemini_md(self) -> Path:

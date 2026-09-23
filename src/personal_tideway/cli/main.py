@@ -2,6 +2,8 @@
 
 import argparse
 import json
+import shlex
+import shutil
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -23,7 +25,18 @@ from personal_tideway.constants import (
     SUPPORTED_TRANSPORTS,
     ExitCode,
 )
-from personal_tideway.core.basic_memory_installer import BasicMemoryRunner
+from personal_tideway.core.basic_memory_installer import (
+    BasicMemoryRunner,
+    install_basic_memory,
+)
+from personal_tideway.core.basic_memory_reconciliation import (
+    plan_basic_memory_projects,
+    reconcile_basic_memory_projects,
+)
+from personal_tideway.core.basic_memory_runtime import (
+    build_basic_memory_install_plan,
+    build_basic_memory_mcp_server,
+)
 from personal_tideway.core.checkpoint import (
     CheckpointRequest,
     write_checkpoint,
@@ -42,11 +55,16 @@ from personal_tideway.core.external_registration import (
 from personal_tideway.core.mcp import (
     load_all_mcp_servers,
     load_mcp_server,
+    load_safe_mcp_server,
     save_mcp_server,
     test_mcp_server,
 )
 from personal_tideway.core.memory import add_memory, list_memories, search_memories
 from personal_tideway.core.project import init_project
+from personal_tideway.core.project_registration_runtime import (
+    capture_project_registration_snapshot,
+    complete_project_registration,
+)
 from personal_tideway.core.project_resolver import (
     probe_git,
     register_directory,
@@ -91,6 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     # 1. init
     p_init = subparsers.add_parser("init", help="Initialize canonical Personal Tideway directory tree")
+    p_init.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview initialization without modifying files",
+    )
+    p_init.add_argument(
+        "--uv-executable",
+        help="Absolute uv executable used to provision isolated Basic Memory (auto-detected by default)",
+    )
 
     # 2. sync
     p_sync = subparsers.add_parser("sync", help="Synchronize Personal Tideway with clients (3-way sync)")
@@ -511,7 +538,12 @@ def handle_memory(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
     return ExitCode.SUCCESS
 
 
-def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
+def handle_project(
+    cfg: PersonalTidewayConfig,
+    args: argparse.Namespace,
+    *,
+    runner: BasicMemoryRunner | None = None,
+) -> int:
     """Handler for 'ptw project' subcommands."""
     if args.project_command == "init":
         target_file = init_project(
@@ -557,8 +589,8 @@ def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
             print("Bindings:")
             if project.bindings.paths:
                 print("  Paths:")
-                for p in project.bindings.paths:
-                    print(f"    - {p}")
+                for bound_path in project.bindings.paths:
+                    print(f"    - {bound_path}")
             else:
                 print("  Paths: (none)")
             if project.bindings.git_common_dirs:
@@ -612,6 +644,8 @@ def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
                 f"Personal Tideway workspace not initialized at {cfg.home}. Run 'ptw init' first."
             )
         registry = load_registry(cfg.projects_yaml)
+        plan_basic_memory_projects(cfg, registry=registry)
+        registration_snapshot = capture_project_registration_snapshot(cfg, registry)
         proposal_res = propose_external_project(
             args.name,
             aliases=list(args.aliases) if args.aliases else None,
@@ -627,6 +661,16 @@ def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
         rec = confirm_res.record or confirm_res.project
         if rec is None:
             raise ValidationError("Failed to confirm and persist external project.")
+        reconcile_basic_memory_projects(cfg, registry=registry)
+        complete_project_registration(
+            cfg,
+            snapshot=registration_snapshot,
+            registry=registry,
+            project=rec,
+            created=bool(confirm_res.created),
+            mutated=bool(confirm_res.created),
+            runner=runner,
+        )
         print(f"Added external project: {rec.display_name} ({rec.slug}) [{rec.id}]")
         return ExitCode.SUCCESS
 
@@ -660,6 +704,8 @@ def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
             )
 
         registry = load_registry(cfg.projects_yaml)
+        plan_basic_memory_projects(cfg, registry=registry)
+        registration_snapshot = capture_project_registration_snapshot(cfg, registry)
 
         kind = args.kind
         if kind == "directory":
@@ -718,6 +764,20 @@ def handle_project(cfg: PersonalTidewayConfig, args: argparse.Namespace) -> int:
             )
 
         rec = res.project
+        reconcile_basic_memory_projects(cfg, registry=registry)
+        complete_project_registration(
+            cfg,
+            snapshot=registration_snapshot,
+            registry=registry,
+            project=rec,
+            created=bool(getattr(res, "created", False) or "auto-registered" in res.evidence),
+            mutated=bool(
+                getattr(res, "created", False)
+                or getattr(res, "bindings_changed", False)
+                or "auto-registered" in res.evidence
+            ),
+            runner=runner,
+        )
         if getattr(res, "created", False) or "auto-registered" in res.evidence:
             print(f"Registered new {rec.kind} project: {rec.display_name} ({rec.slug}) [{rec.id}]")
         elif getattr(res, "bindings_changed", False):
@@ -817,7 +877,7 @@ def preprocess_cli_args(argv: Sequence[str] | None) -> list[str]:
         raw = list(argv)
 
     known_flags = {
-        "--home", "--codex-home", "--gemini-home", "--agy-home",
+        "--home", "--codex-home", "--gemini-home", "--agy-home", "--uv-executable",
         "--agy-hooks", "--codex-hooks",
         "--dry-run", "--json", "--take", "--transport", "--command",
         "--url", "--targets", "--disabled", "--env", "--profiles",
@@ -1046,7 +1106,7 @@ def handle_migrate(args: argparse.Namespace) -> int:
         )
 
         dry_run = getattr(args, "dry_run", False)
-        result = apply_migration(
+        apply_result = apply_migration(
             home=args.home,
             codex_home=args.codex_home,
             gemini_home=args.gemini_home,
@@ -1055,13 +1115,13 @@ def handle_migrate(args: argparse.Namespace) -> int:
             dry_run=dry_run,
         )
         if getattr(args, "json", False):
-            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            print(json.dumps(apply_result.to_dict(), indent=2, sort_keys=True))
         else:
-            print(format_migration_apply_text(result))
+            print(format_migration_apply_text(apply_result))
 
-        if result.status == STATUS_BLOCKED:
+        if apply_result.status == STATUS_BLOCKED:
             return ExitCode.CONFIG_ERROR
-        if result.status in ("rolled_back", "rollback_failed"):
+        if apply_result.status in ("rolled_back", "rollback_failed"):
             return ExitCode.CONFIG_ERROR
         return ExitCode.SUCCESS
 
@@ -1074,7 +1134,7 @@ def handle_migrate(args: argparse.Namespace) -> int:
         )
 
         try:
-            result = rollback_migration(
+            rollback_result = rollback_migration(
                 args.manifest,
                 home=args.home,
                 codex_home=args.codex_home,
@@ -1092,9 +1152,9 @@ def handle_migrate(args: argparse.Namespace) -> int:
             raise MigrationRollbackError(sanitize_error_message(exc, roots)) from exc
 
         if getattr(args, "json", False):
-            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            print(json.dumps(rollback_result.to_dict(), indent=2, sort_keys=True))
         else:
-            print(format_migration_rollback_text(result))
+            print(format_migration_rollback_text(rollback_result))
         return ExitCode.SUCCESS
 
     return ExitCode.VALIDATION_ERROR
@@ -1127,8 +1187,60 @@ def main(
         )
 
         if args.top_command == "init":
-            init_workspace(cfg)
-            print(f"Initialized Personal Tideway at {cfg.home}")
+            uv_executable = args.uv_executable or shutil.which("uv")
+            if uv_executable is None:
+                raise ValidationError(
+                    "uv executable was not found. Install uv or pass --uv-executable with an absolute path."
+                )
+
+            # Validate the complete central-workspace and Basic Memory plans
+            # before the first live write. The plan builder's uninitialized
+            # mode is used only for this zero-mutation init preflight.
+            init_actions = init_workspace(cfg, dry_run=True)
+            install_plan = build_basic_memory_install_plan(
+                cfg,
+                uv_executable=uv_executable,
+                allow_uninitialized=True,
+            )
+            basic_memory_mcp = build_basic_memory_mcp_server(cfg)
+            basic_memory_mcp_path = cfg.mcp_dir / f"{basic_memory_mcp.name}.yaml"
+            existing_basic_memory_mcp = load_safe_mcp_server(basic_memory_mcp_path)
+            if (
+                existing_basic_memory_mcp is not None
+                and existing_basic_memory_mcp.to_dict() != basic_memory_mcp.to_dict()
+            ):
+                raise ConfigError(
+                    "Core-managed Basic Memory MCP definition diverges from the canonical definition."
+                )
+            if args.dry_run:
+                print(f"[DRY RUN] Personal Tideway initialization at {cfg.home}")
+                for action in init_actions:
+                    print(f"  - {action}")
+                if not init_actions:
+                    print("  - no_changes")
+                preview = install_plan.preview()
+                print("[DRY RUN] Basic Memory isolated runtime")
+                for directory in preview.intended_directories:
+                    print(f"  - ensure_directory:{directory}")
+                print(f"  - ensure_config:{preview.config_path}")
+                print(f"  - install_if_health_check_fails:{shlex.join(preview.install_argv)}")
+                print(f"  - health_check:{shlex.join(preview.health_argv)}")
+                mcp_action = "verify_mcp" if existing_basic_memory_mcp is not None else "create_mcp"
+                print(f"  - {mcp_action}:{basic_memory_mcp_path}")
+            else:
+                init_workspace(cfg)
+                install_result = install_basic_memory(
+                    cfg,
+                    uv_executable=uv_executable,
+                    runner=runner,
+                )
+                if existing_basic_memory_mcp is None:
+                    save_mcp_server(cfg.mcp_dir, basic_memory_mcp)
+                print(f"Initialized Personal Tideway at {cfg.home}")
+                if install_result.already_healthy:
+                    print(f"Basic Memory {install_result.version} is already healthy")
+                else:
+                    print(f"Installed and verified Basic Memory {install_result.version}")
             return ExitCode.SUCCESS
 
         # For commands other than init, project, status, doctor, and hook, verify workspace is initialized
@@ -1186,7 +1298,7 @@ def main(
             return handle_memory(cfg, args)
 
         elif args.top_command == "project":
-            return handle_project(cfg, args)
+            return handle_project(cfg, args, runner=runner)
 
         elif args.top_command == "context":
             return handle_context(cfg, args, runner=runner)

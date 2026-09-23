@@ -9,6 +9,7 @@ from personal_tideway.cli.main import main
 from personal_tideway.config import PersonalTidewayConfig
 from personal_tideway.constants import CLIENT_AGY, CLIENT_CODEX, ExitCode
 from personal_tideway.core.mcp import load_mcp_server, save_mcp_server
+from personal_tideway.core.sync import sync_workspace
 from personal_tideway.models import MCPServer
 from personal_tideway.utils import atomic_write_text
 
@@ -40,6 +41,34 @@ def test_sync_idempotency_no_changes(personal_tideway_config: PersonalTidewayCon
     # Ensure no new backups or state modifications
     backups_after = list(personal_tideway_config.backups_dir.glob("*"))
     assert len(backups_before) == len(backups_after)
+
+
+def test_first_sync_preview_lists_managed_skills_and_preserves_unmanaged_client_skills(
+    personal_tideway_config: PersonalTidewayConfig,
+):
+    """First sync is explicit about links and never imports unrelated client skills."""
+    cfg = personal_tideway_config
+    unmanaged_codex = cfg.codex_skills / "unmanaged-codex"
+    unmanaged_agy = cfg.agy_skills / "unmanaged-agy"
+    for skill_dir in (unmanaged_codex, unmanaged_agy):
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text("# Unmanaged\n", encoding="utf-8")
+
+    code, messages = sync_workspace(cfg, dry_run=True)
+
+    assert code == ExitCode.SUCCESS
+    assert "Installed managed skill 'continuity' on codex" in messages
+    assert "Installed managed skill 'continuity' on agy" in messages
+    assert not (cfg.skills_codex / "unmanaged-codex").exists()
+    assert not (cfg.skills_agy / "unmanaged-agy").exists()
+
+    code, _messages = sync_workspace(cfg, dry_run=False)
+
+    assert code == ExitCode.SUCCESS
+    assert unmanaged_codex.is_dir()
+    assert unmanaged_agy.is_dir()
+    assert (cfg.codex_skills / "continuity").is_symlink()
+    assert (cfg.agy_skills / "continuity").is_symlink()
 
 
 def test_one_sided_propagation_ptw_to_clients(personal_tideway_config: PersonalTidewayConfig):

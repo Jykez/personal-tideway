@@ -437,10 +437,11 @@ def acquire_basic_memory_lock(cfg: PersonalTidewayConfig):
         if st.st_nlink != 1:
             raise ConfigError("Lock file has invalid link count.")
 
-        try:
-            os.fchmod(lock_fd, 0o600)
-        except OSError:
-            pass
+        if stat.S_IMODE(st.st_mode) != 0o600:
+            try:
+                os.fchmod(lock_fd, 0o600)
+            except OSError:
+                pass
 
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)

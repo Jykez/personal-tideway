@@ -1,27 +1,31 @@
 """MCP server management, canonical YAML files, and test runner."""
 
 import os
-from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
-from typing import Any
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
 import yaml
 
 from personal_tideway.constants import (
-    CLIENT_AGY,
-    CLIENT_CODEX,
-    ExitCode,
-    SCHEMA_VERSION,
     TRANSPORT_HTTP,
     TRANSPORT_STDIO,
 )
-from personal_tideway.exceptions import RuntimeProbeError, ValidationError
+from personal_tideway.exceptions import ValidationError
 from personal_tideway.models import MCPServer
-from personal_tideway.secrets import interpolate_list, interpolate_string, load_secrets, redact_secrets
+from personal_tideway.secrets import (
+    interpolate_list,
+    interpolate_string,
+    load_secrets,
+    redact_secrets,
+)
 from personal_tideway.utils import atomic_write_text
+
+MAX_MCP_DEFINITION_BYTES = 64 * 1024
 
 
 def load_all_mcp_servers(mcp_dir: Path) -> dict[str, MCPServer]:
@@ -40,7 +44,7 @@ def load_all_mcp_servers(mcp_dir: Path) -> dict[str, MCPServer]:
                 data["name"] = path.stem
             server = MCPServer.from_dict(data)
             servers[server.name] = server
-        except Exception as e:
+        except Exception:
             # Create a placeholder or raise depending on context
             continue
 
@@ -64,6 +68,61 @@ def load_mcp_server(file_path: Path) -> MCPServer:
         data["name"] = file_path.stem
 
     return MCPServer.from_dict(data)
+
+
+def load_safe_mcp_server(file_path: Path) -> MCPServer | None:
+    """Load one bounded canonical MCP definition without following links."""
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    try:
+        fd = os.open(file_path, flags)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise ValidationError("Existing MCP definition cannot be inspected safely.") from None
+
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ValidationError("Existing MCP definition is not a regular file.")
+        if file_stat.st_nlink != 1:
+            raise ValidationError("Existing MCP definition has an invalid link count.")
+        if file_stat.st_size > MAX_MCP_DEFINITION_BYTES:
+            raise ValidationError("Existing MCP definition exceeds the size limit.")
+
+        chunks: list[bytes] = []
+        total = 0
+        while total <= MAX_MCP_DEFINITION_BYTES:
+            chunk = os.read(fd, (MAX_MCP_DEFINITION_BYTES + 1) - total)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > MAX_MCP_DEFINITION_BYTES:
+            raise ValidationError("Existing MCP definition exceeds the size limit.")
+    except ValidationError:
+        raise
+    except OSError:
+        raise ValidationError("Existing MCP definition cannot be inspected safely.") from None
+    finally:
+        os.close(fd)
+
+    try:
+        text = payload.decode("utf-8")
+        data = yaml.safe_load(text)
+    except (UnicodeDecodeError, yaml.YAMLError):
+        raise ValidationError("Existing MCP definition is invalid.") from None
+    if not isinstance(data, dict):
+        raise ValidationError("Existing MCP definition is invalid.")
+    if "name" not in data:
+        data["name"] = file_path.stem
+    try:
+        return MCPServer.from_dict(data)
+    except (TypeError, ValueError, ValidationError):
+        raise ValidationError("Existing MCP definition is invalid.") from None
 
 
 def save_mcp_server(mcp_dir: Path, server: MCPServer, dry_run: bool = False) -> Path:
@@ -186,4 +245,4 @@ def test_mcp_server(
     return True, messages
 
 
-test_mcp_server.__test__ = False
+test_mcp_server.__test__ = False  # type: ignore[attr-defined]

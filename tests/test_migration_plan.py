@@ -13,6 +13,8 @@ import yaml
 from personal_tideway.cli.main import main
 from personal_tideway.constants import (
     DEFAULT_CONFIG_YAML,
+    RULE_MARKER_END,
+    RULE_MARKER_START,
     SCHEMA_VERSION,
     ExitCode,
 )
@@ -898,7 +900,117 @@ def test_absent_config_with_legacy_artifacts_vs_clean(tmp_path: Path):
     (legacy_home / "memory").mkdir(parents=True)
     plan_legacy = plan_migration(home=legacy_home, codex_home=codex_home, gemini_home=gemini_home)
     assert plan_legacy.status == STATUS_BLOCKED
-    assert any("legacy artifacts present but config.yaml is missing" in b for b in plan_legacy.blockers)
+    assert any("home artifacts present but config.yaml is missing" in b for b in plan_legacy.blockers)
+
+
+def test_absent_config_preserves_unmanaged_agy_artifacts(tmp_path: Path):
+    """Обычные agy rules и внешние skill-ссылки не превращают fresh install в migration."""
+    home = tmp_path / "ptw_home"
+    codex_home = tmp_path / "codex_home"
+    gemini_home = tmp_path / "gemini_home"
+    external_skills = tmp_path / "external_skills"
+    codex_home.mkdir()
+    gemini_home.mkdir()
+    external_skills.mkdir()
+
+    sentinel = "USER_RULE_SENTINEL_MUST_NOT_APPEAR"
+    (gemini_home / "GEMINI.md").write_text(sentinel, encoding="utf-8")
+    legacy_skills = gemini_home / "skills"
+    legacy_skills.mkdir()
+    for name in ("first", "second"):
+        target = external_skills / name
+        target.mkdir()
+        (target / "SKILL.md").write_text(
+            "Personal Tideway managed skill.\n",
+            encoding="utf-8",
+        )
+        (legacy_skills / name).symlink_to(target, target_is_directory=True)
+    local_skill = legacy_skills / "local_user_skill"
+    local_skill.mkdir()
+    (local_skill / "SKILL.md").write_text("# User skill\n", encoding="utf-8")
+
+    plan = plan_migration(home=home, codex_home=codex_home, gemini_home=gemini_home)
+
+    assert plan.status == STATUS_NOT_REQUIRED
+    assert plan.blockers == []
+    assert "agy:unmanaged_rules" in plan.preserve
+    assert "agy:unmanaged_skills" in plan.preserve
+    assert any("not migration inputs" in warning for warning in plan.warnings)
+    assert sentinel not in json.dumps(plan.to_dict())
+
+
+def test_absent_config_with_managed_agy_rules_is_blocked(tmp_path: Path):
+    """Явный managed-блок без v1 config остаётся fail-closed."""
+    home = tmp_path / "ptw_home"
+    codex_home = tmp_path / "codex_home"
+    gemini_home = tmp_path / "gemini_home"
+    codex_home.mkdir()
+    gemini_home.mkdir()
+    (gemini_home / "GEMINI.md").write_text(
+        f"{RULE_MARKER_START}\nmanaged\n{RULE_MARKER_END}\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_migration(home=home, codex_home=codex_home, gemini_home=gemini_home)
+
+    assert plan.status == STATUS_BLOCKED
+    assert any("managed client artifacts" in blocker for blocker in plan.blockers)
+
+
+def test_absent_config_with_managed_agy_skill_is_blocked(tmp_path: Path):
+    """Маркер managed skill без v1 config требует recovery, а не fresh install."""
+    home = tmp_path / "ptw_home"
+    codex_home = tmp_path / "codex_home"
+    gemini_home = tmp_path / "gemini_home"
+    codex_home.mkdir()
+    skill_dir = gemini_home / "skills" / "continuity"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "# Continuity\nPersonal Tideway managed skill.\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_migration(home=home, codex_home=codex_home, gemini_home=gemini_home)
+
+    assert plan.status == STATUS_BLOCKED
+    assert any("managed client artifacts" in blocker for blocker in plan.blockers)
+
+
+def test_absent_config_with_malformed_ptw_marker_is_blocked(tmp_path: Path):
+    """Частичный PTW-маркер нельзя молча считать пользовательским текстом."""
+    home = tmp_path / "ptw_home"
+    codex_home = tmp_path / "codex_home"
+    gemini_home = tmp_path / "gemini_home"
+    codex_home.mkdir()
+    gemini_home.mkdir()
+    (gemini_home / "GEMINI.md").write_text(
+        f"{RULE_MARKER_START}\nunclosed\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_migration(home=home, codex_home=codex_home, gemini_home=gemini_home)
+
+    assert plan.status == STATUS_BLOCKED
+    assert any("malformed Personal Tideway markers" in blocker for blocker in plan.blockers)
+
+
+def test_absent_config_with_skill_link_into_ptw_home_is_blocked(tmp_path: Path):
+    """Даже битая ссылка внутрь PTW home является provenance evidence."""
+    home = tmp_path / "ptw_home"
+    codex_home = tmp_path / "codex_home"
+    gemini_home = tmp_path / "gemini_home"
+    codex_home.mkdir()
+    legacy_skills = gemini_home / "skills"
+    legacy_skills.mkdir(parents=True)
+    (legacy_skills / "continuity").symlink_to(
+        home / "skills" / "shared" / "continuity",
+        target_is_directory=True,
+    )
+
+    plan = plan_migration(home=home, codex_home=codex_home, gemini_home=gemini_home)
+
+    assert plan.status == STATUS_BLOCKED
+    assert any("managed client artifacts" in blocker for blocker in plan.blockers)
 
 
 # ============================================================================

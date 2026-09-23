@@ -15,6 +15,7 @@ from personal_tideway.core.basic_memory_backend import (
     parse_basic_memory_status,
     plan_backend,
     plan_basic_memory_backend,
+    remove_basic_memory_runtime_project,
     sync_and_initialize_basic_memory_backend,
     validate_basic_memory_backend_plan,
 )
@@ -116,6 +117,12 @@ from personal_tideway.core.external_registration import (
     confirm_external_project,
     propose_external_project,
 )
+from personal_tideway.core.project_registration_runtime import (
+    MAX_REGISTRATION_SNAPSHOT_BYTES,
+    ProjectRegistrationSnapshot,
+    capture_project_registration_snapshot,
+    complete_project_registration,
+)
 from personal_tideway.core.project_resolver import (
     BindingReconciliationResult,
     DirectoryRegistrationResult,
@@ -196,8 +203,10 @@ __all__ = [  # noqa: RUF022 - public API keeps Python's deterministic sorted() o
     "MAX_COLLECTION_ITEMS",
     "MAX_FIELD_CHARS",
     "MAX_ITEM_CHARS",
+    "MAX_REGISTRATION_SNAPSHOT_BYTES",
     "MAX_STATUS_OUTPUT_BYTES",
     "MIN_CHECKPOINT_CHARS",
+    "ProjectRegistrationSnapshot",
     "ProjectResolutionResult",
     "ProposedBindingChanges",
     "acquire_project_checkpoint_lock",
@@ -207,7 +216,9 @@ __all__ = [  # noqa: RUF022 - public API keeps Python's deterministic sorted() o
     "build_current_state_search_argv",
     "build_read_note_argv",
     "build_search_notes_argv",
+    "capture_project_registration_snapshot",
     "checkpoint_subprocess_runner",
+    "complete_project_registration",
     "compute_canonical_basic_memory_env_overrides",
     "compute_desired_basic_memory_projects",
     "compute_semantic_fingerprint",
@@ -240,6 +251,7 @@ __all__ = [  # noqa: RUF022 - public API keeps Python's deterministic sorted() o
     "reconcile_git_bindings",
     "reconcile_projects",
     "register_directory",
+    "remove_basic_memory_runtime_project",
     "render_checkpoint_markdown",
     "resolve_or_register_git",
     "resolve_project",

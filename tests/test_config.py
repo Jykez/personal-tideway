@@ -119,6 +119,20 @@ def test_precedence_gemini_home_and_agy_alias(tmp_path: Path, monkeypatch: pytes
     assert cfg_cli.gemini_home == cli_gemini.resolve()
 
 
+def test_agy_projection_paths_use_current_customization_root(tmp_path: Path):
+    """AGY projections must never default to the obsolete v1 root paths."""
+    gemini_home = tmp_path / "gemini"
+    cfg = PersonalTidewayConfig.resolve(
+        home=tmp_path / "ptw",
+        gemini_home=gemini_home,
+    )
+
+    assert cfg.agy_rules == gemini_home.resolve() / "config" / "GEMINI.md"
+    assert cfg.agy_skills == gemini_home.resolve() / "config" / "skills"
+    assert cfg.agy_rules != cfg.agy_legacy_gemini_md
+    assert cfg.agy_skills != cfg.agy_legacy_skills
+
+
 def test_precedence_skill_link_mode(tmp_path: Path):
     """Precedence chain for skill_link_mode: CLI > config.yaml > default."""
     home = tmp_path / "ptw_home"

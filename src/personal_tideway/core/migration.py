@@ -16,6 +16,8 @@ import yaml
 from personal_tideway.constants import (
     DEFAULT_CONFIG_YAML,
     DEFAULT_PERSONAL_TIDEWAY_DIR,
+    RULE_MARKER_END,
+    RULE_MARKER_START,
     SCHEMA_VERSION,
 )
 
@@ -26,6 +28,8 @@ STATUS_BLOCKED = "blocked"
 VALID_STATUSES = (STATUS_NOT_REQUIRED, STATUS_READY, STATUS_BLOCKED)
 
 MAX_CONFIG_BYTES = 64 * 1024  # 64 KiB conservative cap for config.yaml
+MAX_PROVENANCE_BYTES = 256 * 1024
+PTW_SKILL_MARKER = b"Personal Tideway managed skill."
 
 SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -255,6 +259,160 @@ def _resolve_anchored_client_path(raw_path: str, anchor_root: Path) -> Path:
     return p
 
 
+def _read_provenance_file(path: Path, artifact: str) -> tuple[bytes | None, str | None]:
+    """Безопасно прочитать ограниченный файл только для поиска маркеров владения."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return None, None
+    except OSError:
+        return None, f"Unable to inspect {artifact} ownership safely"
+
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            return None, f"Unsafe {artifact}: ownership marker source is not a regular file"
+        if file_stat.st_nlink != 1:
+            return None, f"Unsafe {artifact}: ownership marker source is hard-linked"
+        if file_stat.st_size > MAX_PROVENANCE_BYTES:
+            return None, f"Unable to classify {artifact}: ownership marker source is too large"
+        chunks: list[bytes] = []
+        remaining = MAX_PROVENANCE_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > MAX_PROVENANCE_BYTES:
+            return None, f"Unable to classify {artifact}: ownership marker source is too large"
+        return payload, None
+    except OSError:
+        return None, f"Unable to inspect {artifact} ownership safely"
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def _symlink_targets_root(path: Path, root: Path) -> tuple[bool | None, str | None]:
+    """Классифицировать ссылку лексически, не переходя по ней."""
+    try:
+        raw_target = Path(os.readlink(path))
+    except OSError:
+        return None, "Unable to inspect legacy AGY symlink ownership safely"
+    target = raw_target if raw_target.is_absolute() else path.parent / raw_target
+    normalized = Path(os.path.abspath(target))
+    try:
+        normalized.relative_to(root)
+    except ValueError:
+        return False, None
+    return True, None
+
+
+def _classify_clients_without_config(
+    home: Path,
+    gemini_home: Path,
+) -> tuple[bool, bool, list[str]]:
+    """Найти только явные PTW-маркеры, сохраняя обычные клиентские артефакты."""
+    managed_found = False
+    unmanaged_found = False
+    blockers: list[str] = []
+    start_marker = RULE_MARKER_START.encode("utf-8")
+    end_marker = RULE_MARKER_END.encode("utf-8")
+
+    legacy_rules = gemini_home / "GEMINI.md"
+    if _safe_is_symlink(legacy_rules):
+        targets_home, error = _symlink_targets_root(legacy_rules, home)
+        if error:
+            blockers.append(error)
+        elif targets_home:
+            managed_found = True
+        else:
+            unmanaged_found = True
+    elif legacy_rules.exists():
+        payload, error = _read_provenance_file(legacy_rules, "legacy AGY rules")
+        if error:
+            blockers.append(error)
+        elif payload is not None:
+            start_count = payload.count(start_marker)
+            end_count = payload.count(end_marker)
+            if start_count == 0 and end_count == 0:
+                unmanaged_found = True
+            elif start_count == 1 and end_count == 1 and payload.find(start_marker) < payload.find(end_marker):
+                managed_found = True
+            else:
+                blockers.append("Ambiguous or malformed Personal Tideway markers in legacy AGY rules")
+
+    legacy_skills = gemini_home / "skills"
+    if _safe_is_symlink(legacy_skills):
+        targets_home, error = _symlink_targets_root(legacy_skills, home)
+        if error:
+            blockers.append(error)
+        elif targets_home:
+            managed_found = True
+        else:
+            unmanaged_found = True
+    elif legacy_skills.exists():
+        try:
+            skills_stat = legacy_skills.lstat()
+        except OSError:
+            blockers.append("Unable to inspect legacy AGY skills ownership safely")
+        else:
+            if not stat.S_ISDIR(skills_stat.st_mode):
+                unmanaged_found = True
+            else:
+                try:
+                    entries = sorted(legacy_skills.iterdir(), key=lambda item: item.name)
+                except OSError:
+                    blockers.append("Unable to inspect legacy AGY skills ownership safely")
+                else:
+                    for entry in entries:
+                        if _safe_is_symlink(entry):
+                            targets_home, error = _symlink_targets_root(entry, home)
+                            if error:
+                                blockers.append(error)
+                            elif targets_home:
+                                managed_found = True
+                            else:
+                                unmanaged_found = True
+                            continue
+                        try:
+                            entry_stat = entry.lstat()
+                        except OSError:
+                            blockers.append("Unable to inspect legacy AGY skill entry safely")
+                            continue
+                        if not stat.S_ISDIR(entry_stat.st_mode):
+                            unmanaged_found = True
+                            continue
+                        skill_md = entry / "SKILL.md"
+                        if _safe_is_symlink(skill_md):
+                            targets_home, error = _symlink_targets_root(skill_md, home)
+                            if error:
+                                blockers.append(error)
+                            elif targets_home:
+                                managed_found = True
+                            else:
+                                unmanaged_found = True
+                            continue
+                        payload, error = _read_provenance_file(skill_md, "legacy AGY skill")
+                        if error:
+                            blockers.append(error)
+                        elif payload is None:
+                            unmanaged_found = True
+                        elif PTW_SKILL_MARKER in payload or start_marker in payload or end_marker in payload:
+                            managed_found = True
+                        else:
+                            unmanaged_found = True
+
+    return managed_found, unmanaged_found, sorted(set(blockers))
+
+
 def plan_migration(
     home: str | Path | None = None,
     codex_home: str | Path | None = None,
@@ -298,6 +456,7 @@ def plan_migration(
         raw_gemini_home = Path(gemini_home).expanduser()
     elif os.environ.get("GEMINI_HOME") or os.environ.get("AGY_HOME"):
         raw_env_gemini = os.environ.get("GEMINI_HOME") or os.environ.get("AGY_HOME")
+        assert raw_env_gemini is not None
         raw_gemini_home = Path(raw_env_gemini).expanduser()
     else:
         raw_gemini_home = Path.home() / ".gemini"
@@ -351,7 +510,7 @@ def plan_migration(
     try:
         fd = os.open(config_yaml, open_flags)
     except FileNotFoundError:
-        # Check if legacy artifacts exist under home or client roots
+        # Артефакты внутри PTW home без config остаются неоднозначным v1 layout.
         legacy_under_home = False
         mem_cand = resolved_home / "memory"
         mcp_cand = resolved_home / "mcp"
@@ -360,22 +519,23 @@ def plan_migration(
         if _safe_is_symlink(mcp_cand) or mcp_cand.exists():
             legacy_under_home = True
 
-        legacy_under_clients = False
-        gemini_rules_cand = resolved_gemini_home / "GEMINI.md"
-        gemini_skills_cand = resolved_gemini_home / "skills"
-        if _safe_is_symlink(gemini_rules_cand) or gemini_rules_cand.exists():
-            legacy_under_clients = True
-        if _safe_is_symlink(gemini_skills_cand) or gemini_skills_cand.exists():
-            legacy_under_clients = True
+        managed_client_artifacts, unmanaged_client_artifacts, ownership_blockers = (
+            _classify_clients_without_config(resolved_home, resolved_gemini_home)
+        )
 
-        if legacy_under_home or legacy_under_clients:
+        if legacy_under_home or managed_client_artifacts or ownership_blockers:
+            missing_config_blockers = list(ownership_blockers)
+            if legacy_under_home:
+                missing_config_blockers.append("Ambiguous layout: legacy Personal Tideway home artifacts present but config.yaml is missing")
+            if managed_client_artifacts:
+                missing_config_blockers.append("Ambiguous layout: Personal Tideway-managed client artifacts present but config.yaml is missing")
             return MigrationPlan(
                 status=STATUS_BLOCKED,
                 source_schema_version=None,
                 target_schema_version=SCHEMA_VERSION,
                 actions=[],
                 backups=[],
-                blockers=["Ambiguous layout: legacy artifacts present but config.yaml is missing"],
+                blockers=sorted(set(missing_config_blockers)),
                 warnings=[],
                 preserve=[],
                 legacy_paths=[],
@@ -384,6 +544,11 @@ def plan_migration(
                 client_files=standard_client_files,
             )
 
+        missing_config_warnings = ["No legacy Personal Tideway configuration found to migrate"]
+        preserve: list[str] = []
+        if unmanaged_client_artifacts:
+            missing_config_warnings.append("Existing unmanaged AGY rules or skills are not migration inputs")
+            preserve.extend(["agy:unmanaged_rules", "agy:unmanaged_skills"])
         return MigrationPlan(
             status=STATUS_NOT_REQUIRED,
             source_schema_version=None,
@@ -391,8 +556,8 @@ def plan_migration(
             actions=[],
             backups=[],
             blockers=[],
-            warnings=["No legacy Personal Tideway configuration found to migrate"],
-            preserve=[],
+            warnings=sorted(missing_config_warnings),
+            preserve=sorted(preserve),
             legacy_paths=[],
             current_paths=standard_current_paths,
             canonical_mcp=[],

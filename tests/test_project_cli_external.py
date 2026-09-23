@@ -92,6 +92,10 @@ def test_add_external_persists_and_is_visible_to_read_commands(
     assert record.aliases == ["pve", "cluster"]
     assert record.bindings.to_dict() == {"paths": [], "git_common_dirs": [], "git_remotes": []}
     assert record.id in output
+    basic_memory_config = json.loads(
+        (cfg.basic_memory_dir / "config" / "config.json").read_text(encoding="utf-8")
+    )
+    assert record.memory.project_name in basic_memory_config["projects"]
 
     assert main(["--home", str(home), "project", "list", "--json"]) == ExitCode.SUCCESS
     listed = json.loads(capsys.readouterr().out)
@@ -177,6 +181,10 @@ def guard_git_runner(monkeypatch: pytest.MonkeyPatch):
         "personal_tideway.core.project_resolver.default_git_runner",
         guarded_git,
     )
+    monkeypatch.setattr(
+        "personal_tideway.cli.main.complete_project_registration",
+        lambda *args, **kwargs: None,
+    )
 
 
 def test_project_add_parser_defaults_and_options():
@@ -235,6 +243,10 @@ def test_project_add_autodetected_directory(
     assert len(reg.projects) == 1
     assert reg.projects[0].kind == PROJECT_KIND_DIRECTORY
     assert reg.projects[0].display_name == "my_plain_dir"
+    basic_memory_config = json.loads(
+        (cfg.basic_memory_dir / "config" / "config.json").read_text(encoding="utf-8")
+    )
+    assert reg.projects[0].memory.project_name in basic_memory_config["projects"]
 
 
 def test_project_add_autodetected_git_with_custom_name_and_single_probe(
@@ -275,6 +287,10 @@ def test_project_add_autodetected_git_with_custom_name_and_single_probe(
     assert len(reg.projects) == 1
     assert reg.projects[0].kind == PROJECT_KIND_GIT
     assert reg.projects[0].display_name == "Custom Project Name"
+    basic_memory_config = json.loads(
+        (cfg.basic_memory_dir / "config" / "config.json").read_text(encoding="utf-8")
+    )
+    assert reg.projects[0].memory.project_name in basic_memory_config["projects"]
 
 
 def test_project_add_explicit_kind_mismatch_both_ways(
@@ -403,3 +419,39 @@ def test_project_add_target_tree_untouched(
     assert source_file.stat().st_mtime_ns == before_mtime
     assert not (target / ".personal-tideway.yaml").exists()
     assert not (target / ".ptw").exists()
+
+
+def test_project_add_passes_registration_and_runner_to_runtime_completion(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "ptw"
+    cfg = PersonalTidewayConfig.resolve(home=home)
+    init_workspace(cfg)
+    target = tmp_path / "runtime_target"
+    target.mkdir()
+    monkeypatch.setattr(
+        "personal_tideway.cli.main.probe_git",
+        lambda _p: GitProbeResult(is_git=False, status="not_git"),
+    )
+    observed: dict[str, object] = {}
+
+    def complete_spy(*args: object, **kwargs: object) -> None:
+        observed.update(kwargs)
+
+    runner = lambda argv, env, timeout: (0, "", "")
+    monkeypatch.setattr(
+        "personal_tideway.cli.main.complete_project_registration",
+        complete_spy,
+    )
+
+    assert main(
+        ["--home", str(home), "project", "add", str(target)],
+        runner=runner,
+    ) == ExitCode.SUCCESS
+    capsys.readouterr()
+    assert observed["created"] is True
+    assert observed["mutated"] is True
+    assert observed["runner"] is runner
+    assert observed["registry"].projects == [observed["project"]]

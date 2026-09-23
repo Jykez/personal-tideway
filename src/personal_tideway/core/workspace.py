@@ -2,20 +2,19 @@
 
 import json
 import os
+import stat
 from pathlib import Path
+
 import yaml
 
 from personal_tideway.config import PersonalTidewayConfig, validate_owned_path
 from personal_tideway.constants import (
     CONTINUITY_RULE_FILENAME,
     CONTINUITY_SKILL_NAME,
-    DEFAULT_CONFIG_YAML,
-    DEFAULT_SECRETS_ENV,
     SCHEMA_VERSION,
 )
 from personal_tideway.exceptions import ConfigError
 from personal_tideway.utils import atomic_write_text
-
 
 DEFAULT_SECRETS_TEMPLATE = """# Personal Tideway Secrets
 # Strict KEY=VALUE lines only. Mode 0600.
@@ -180,8 +179,8 @@ EOF
 """
 
 
-def init_workspace(cfg: PersonalTidewayConfig) -> None:
-    """Initialize canonical Personal Tideway v2 central directory tree, secrets.env, config.yaml, and registry."""
+def init_workspace(cfg: PersonalTidewayConfig, *, dry_run: bool = False) -> list[str]:
+    """Инициализировать v2 workspace или вернуть точный план без записи."""
     if cfg.version != SCHEMA_VERSION:
         raise ConfigError(
             f"Cannot initialize workspace with version {cfg.version}. Workspace requires migration to version {SCHEMA_VERSION}."
@@ -245,8 +244,35 @@ def init_workspace(cfg: PersonalTidewayConfig) -> None:
         if f.is_symlink():
             raise ConfigError(f"File target '{f}' is a symlink, which is not permitted in child layout.")
 
-        if f.exists() and not f.is_file():
+        try:
+            file_stat = os.lstat(f)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            raise ConfigError(f"File target '{f}' cannot be inspected safely.") from None
+        if not stat.S_ISREG(file_stat.st_mode):
             raise ConfigError(f"File target '{f}' exists but is not a regular file.")
+        if file_stat.st_nlink != 1:
+            raise ConfigError(f"File target '{f}' has an invalid link count.")
+
+    def symbolic_path(path: Path) -> str:
+        if path == cfg.home:
+            return "."
+        return str(path.relative_to(cfg.home))
+
+    actions: list[str] = []
+    for directory, _ in canonical_dirs:
+        if not directory.exists():
+            actions.append(f"create_directory:{symbolic_path(directory)}")
+    for file_path in canonical_files:
+        if not file_path.exists():
+            actions.append(f"create_file:{symbolic_path(file_path)}")
+    if cfg.secrets_env.is_file() and stat.S_IMODE(cfg.secrets_env.stat().st_mode) != 0o600:
+        actions.append("set_mode:secrets.env:0600")
+
+    actions.sort()
+    if dry_run:
+        return actions
 
     # --- Mutation Phase ---
     # 1. Create canonical v2 directory tree
@@ -256,7 +282,7 @@ def init_workspace(cfg: PersonalTidewayConfig) -> None:
     # 2. Initialize secrets.env with mode 0600 (NEVER overwritten by init)
     if not cfg.secrets_env.exists():
         atomic_write_text(cfg.secrets_env, DEFAULT_SECRETS_TEMPLATE, mode=0o600)
-    else:
+    elif stat.S_IMODE(cfg.secrets_env.stat().st_mode) != 0o600:
         # Ensure existing secrets.env maintains strict 0600 permissions
         try:
             os.chmod(cfg.secrets_env, 0o600)
@@ -290,3 +316,5 @@ def init_workspace(cfg: PersonalTidewayConfig) -> None:
     # 7. Initialize canonical continuity skill if missing (preserve existing user edits)
     if not continuity_skill_md.exists():
         atomic_write_text(continuity_skill_md, DEFAULT_CONTINUITY_SKILL_TEMPLATE)
+
+    return actions

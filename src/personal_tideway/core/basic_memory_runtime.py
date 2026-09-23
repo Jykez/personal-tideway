@@ -8,17 +8,19 @@ Work Package 9a implementation for Personal Tideway v2:
 - Deterministic minimal safe bootstrap config.json model without default fallback.
 """
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
 import json
 import os
-from pathlib import Path
 import stat
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from personal_tideway.config import PersonalTidewayConfig, validate_owned_path
+from personal_tideway.constants import CLIENT_AGY, CLIENT_CODEX, TRANSPORT_STDIO
 from personal_tideway.exceptions import BoundaryError, ConfigError, ValidationError
+from personal_tideway.models import MCPServer
 
 # Verified upstream exact version pin and install requirement
 BASIC_MEMORY_PINNED_VERSION: str = "0.23.2"
@@ -375,27 +377,52 @@ def build_basic_memory_bootstrap_config() -> BasicMemoryBootstrapConfig:
     )
 
 
+def build_basic_memory_mcp_server(cfg: PersonalTidewayConfig) -> MCPServer:
+    """Build the canonical core-managed Basic Memory stdio MCP definition."""
+    layout = get_basic_memory_layout(cfg)
+    server = MCPServer(
+        name="basic-memory",
+        transport=TRANSPORT_STDIO,
+        command=str(layout.primary_executable),
+        args=["mcp", "--transport", "stdio"],
+        targets=[CLIENT_CODEX, CLIENT_AGY],
+        enabled=True,
+        tags=["core-managed", "basic-memory"],
+        env={
+            ENV_BASIC_MEMORY_CONFIG_DIR: str(layout.config_dir),
+            ENV_BASIC_MEMORY_AUTO_UPDATE: BASIC_MEMORY_AUTO_UPDATE_VALUE,
+            ENV_BASIC_MEMORY_NO_PROMOS: BASIC_MEMORY_NO_PROMOS_VALUE,
+        },
+    )
+    server.validate()
+    return server
+
+
 def build_basic_memory_install_plan(
     cfg: PersonalTidewayConfig,
     uv_executable: str | Path | None = None,
     uv_resolver: Callable[[], str | Path] | None = None,
+    *,
+    allow_uninitialized: bool = False,
 ) -> BasicMemoryInstallPlan:
     """Construct an immutable, verified Basic Memory installation plan.
 
     Pure builder: performs zero writes, creates zero files, and executes zero child processes.
     Validates that cfg is initialized and uv_executable meets all security constraints.
+    ``allow_uninitialized`` is reserved for the zero-mutation ``ptw init
+    --dry-run`` preview, where the workspace preflight has already succeeded.
     """
     if cfg.home.is_symlink():
         raise BoundaryError(
             "Workspace root is a symlink, which is not permitted."
         )
 
-    if not cfg.is_initialized():
+    if not allow_uninitialized and not cfg.is_initialized():
         raise ConfigError(
             "Personal Tideway workspace is not initialized. Run 'ptw init' before creating an install plan."
         )
 
-    if not cfg.home.is_dir():
+    if not allow_uninitialized and not cfg.home.is_dir():
         raise ConfigError(
             "Personal Tideway workspace directory does not exist or is not a directory."
         )
@@ -454,18 +481,19 @@ __all__ = [
     "BASIC_MEMORY_NO_PROMOS_VALUE",
     "BASIC_MEMORY_PINNED_VERSION",
     "BASIC_MEMORY_REQUIREMENT",
-    "BasicMemoryBootstrapConfig",
-    "BasicMemoryInstallPlan",
-    "BasicMemoryInstallPlanPreview",
-    "BasicMemoryLayout",
     "ENV_BASIC_MEMORY_AUTO_UPDATE",
     "ENV_BASIC_MEMORY_CONFIG_DIR",
     "ENV_BASIC_MEMORY_NO_PROMOS",
     "ENV_UV_CACHE_DIR",
     "ENV_UV_TOOL_BIN_DIR",
     "ENV_UV_TOOL_DIR",
+    "BasicMemoryBootstrapConfig",
+    "BasicMemoryInstallPlan",
+    "BasicMemoryInstallPlanPreview",
+    "BasicMemoryLayout",
     "build_basic_memory_bootstrap_config",
     "build_basic_memory_install_plan",
+    "build_basic_memory_mcp_server",
     "get_basic_memory_layout",
     "validate_uv_executable",
 ]

@@ -42,6 +42,7 @@ from personal_tideway.core.basic_memory_backend import (
     parse_basic_memory_status,
     plan_backend,
     plan_basic_memory_backend,
+    remove_basic_memory_runtime_project,
     sync_and_initialize_basic_memory_backend,
     validate_basic_memory_backend_plan,
 )
@@ -717,6 +718,89 @@ def test_orchestration_missing_executable_fails_before_reconciliation_mutation(
     assert str(exc_info.value) == "Basic Memory executable missing or invalid."
     assert exc_info.value.__cause__ is None
     assert snapshot_filesystem(personal_tideway_config.home) == before
+
+
+def test_runtime_project_removal_uses_supported_non_destructive_cli(
+    personal_tideway_config: PersonalTidewayConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        "personal_tideway.core.basic_memory_backend._require_backend_executable",
+        lambda plan, cfg: None,
+    )
+
+    def runner(
+        argv: tuple[str, ...], env: Mapping[str, str], timeout: float
+    ) -> BasicMemoryRunnerResult:
+        calls.append(argv)
+        return BasicMemoryRunnerResult(returncode=0, stdout="removed", stderr="")
+
+    assert remove_basic_memory_runtime_project(
+        personal_tideway_config,
+        "ptw-runtime-probe",
+        runner=runner,
+    ) is True
+    assert calls == [
+        (
+            str(get_basic_memory_layout(personal_tideway_config).primary_executable),
+            "project",
+            "remove",
+            "ptw-runtime-probe",
+            "--local",
+        )
+    ]
+    assert "--delete-notes" not in calls[0]
+
+
+def test_runtime_project_removal_accepts_already_absent_project(
+    personal_tideway_config: PersonalTidewayConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "personal_tideway.core.basic_memory_backend._require_backend_executable",
+        lambda plan, cfg: None,
+    )
+
+    def runner(
+        argv: tuple[str, ...], env: Mapping[str, str], timeout: float
+    ) -> BasicMemoryRunnerResult:
+        if argv[1:3] == ("project", "remove"):
+            return BasicMemoryRunnerResult(returncode=1, stdout="", stderr="not found")
+        return BasicMemoryRunnerResult(
+            returncode=1,
+            stdout=json.dumps({"error": "Project not found: 'ptw-runtime-probe'."}),
+            stderr="",
+        )
+
+    assert remove_basic_memory_runtime_project(
+        personal_tideway_config,
+        "ptw-runtime-probe",
+        runner=runner,
+    ) is False
+
+
+@pytest.mark.parametrize("timeout", [True, 0, -1, float("nan"), float("inf"), "15"])
+def test_runtime_project_removal_rejects_invalid_timeout_before_runner(
+    personal_tideway_config: PersonalTidewayConfig,
+    timeout: object,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(
+        argv: tuple[str, ...], env: Mapping[str, str], command_timeout: float
+    ) -> BasicMemoryRunnerResult:
+        calls.append(argv)
+        return BasicMemoryRunnerResult(returncode=0, stdout="", stderr="")
+
+    with pytest.raises(ValidationError, match="positive finite"):
+        remove_basic_memory_runtime_project(
+            personal_tideway_config,
+            "ptw-runtime-probe",
+            runner=runner,
+            timeout=timeout,  # type: ignore[arg-type]
+        )
+    assert calls == []
 
 
 def test_tampered_plan_forged_argv_fails_closed_zero_runner_calls(

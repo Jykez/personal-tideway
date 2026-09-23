@@ -56,6 +56,7 @@ from personal_tideway.exceptions import (
 # Default timeouts for backend operations (seconds)
 DEFAULT_REINDEX_TIMEOUT: float = 120.0
 DEFAULT_STATUS_TIMEOUT: float = 15.0
+DEFAULT_RUNTIME_ROLLBACK_TIMEOUT: float = 15.0
 
 # Dedicated bounded status limit for realistic observed_files JSON arrays (4 MiB)
 MAX_STATUS_OUTPUT_BYTES: int = 4 * 1024 * 1024
@@ -659,6 +660,69 @@ def execute_basic_memory_backend_plan(
     )
 
 
+def remove_basic_memory_runtime_project(
+    cfg: PersonalTidewayConfig,
+    project_name: str,
+    *,
+    runner: BasicMemoryRunner | None = None,
+    timeout: float = DEFAULT_RUNTIME_ROLLBACK_TIMEOUT,
+) -> bool:
+    """Remove one runtime project through the supported Basic Memory CLI.
+
+    Returns ``True`` when removal ran and ``False`` when the project was already
+    absent. Notes are preserved because ``--delete-notes`` is never passed.
+    """
+    if not isinstance(project_name, str) or not project_name.strip():
+        raise ValidationError("Basic Memory project name must be a non-empty string.")
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        raise ValidationError("Runtime rollback timeout must be a positive finite number.")
+    layout = get_basic_memory_layout(cfg)
+    empty_plan = plan_basic_memory_backend(cfg, ProjectRegistry.empty())
+    _require_backend_executable(empty_plan, cfg)
+    env = build_subprocess_env(compute_canonical_basic_memory_env_overrides(layout))
+    active_runner = runner if runner is not None else default_subprocess_runner
+    remove_argv = (
+        str(layout.primary_executable),
+        "project",
+        "remove",
+        project_name,
+        "--local",
+    )
+    try:
+        remove_result = _invoke_runner(active_runner, remove_argv, env, timeout)
+    except (TimeoutError, RuntimeProbeError):
+        raise RuntimeProbeError("Basic Memory project rollback failed.") from None
+    if remove_result.returncode == 0:
+        return True
+
+    status_argv = (
+        str(layout.primary_executable),
+        "status",
+        "--project",
+        project_name,
+        "--local",
+        "--json",
+    )
+    try:
+        status_result = _invoke_runner(active_runner, status_argv, env, timeout)
+        status_doc = json.loads(status_result.stdout) if status_result.stdout else None
+    except (json.JSONDecodeError, RuntimeProbeError, TimeoutError, TypeError, ValueError):
+        raise RuntimeProbeError("Basic Memory project rollback failed.") from None
+    if (
+        status_result.returncode != 0
+        and isinstance(status_doc, dict)
+        and isinstance(status_doc.get("error"), str)
+        and status_doc["error"].startswith("Project not found:")
+    ):
+        return False
+    raise RuntimeProbeError("Basic Memory project rollback failed.") from None
+
+
 def sync_and_initialize_basic_memory_backend(
     cfg: PersonalTidewayConfig,
     registry: ProjectRegistry | None = None,
@@ -720,6 +784,7 @@ execute_backend_plan = execute_basic_memory_backend_plan
 
 __all__ = [
     "DEFAULT_REINDEX_TIMEOUT",
+    "DEFAULT_RUNTIME_ROLLBACK_TIMEOUT",
     "DEFAULT_STATUS_TIMEOUT",
     "MAX_STATUS_OUTPUT_BYTES",
     "BasicMemoryBackendPlan",
@@ -733,6 +798,7 @@ __all__ = [
     "parse_basic_memory_status",
     "plan_backend",
     "plan_basic_memory_backend",
+    "remove_basic_memory_runtime_project",
     "sync_and_initialize_basic_memory_backend",
     "validate_basic_memory_backend_plan",
 ]
