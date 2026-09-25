@@ -99,6 +99,23 @@ truthful for `ptw status` to report `instructed` with `hook_verified=false`.
 Migration 5E does not claim the automated `hooked` level. Durable behavioral
 evidence is the next bounded agent-integration capability.
 
+### Follow-up candidate record (2026-09-25, uncommitted)
+
+The follow-up implementation can store a bounded local candidate record per
+client in `state/behavioral-evidence/`. It records the probe time, SHA-256
+digests of a marker and proposed client/trust traces, and a fingerprint of the
+exact hook and runtime configuration bytes. A local HMAC seal, restrictive file
+permissions, a 30-day expiry, and path checks reject damaged, stale, changed,
+or cross-client records. Raw markers and transcripts are not stored.
+
+This seal only protects local record integrity. The current code does not yet
+verify native Codex/agy traces, prove that a hidden marker reached the model,
+or establish that the client's own trust review accepted the hook. The record
+writer is deliberately internal and does not promote assurance. `ptw status`
+therefore remains `instructed` and `hook_verified=false` even with a current
+candidate. A future verifier must correlate a fresh challenge with native
+client output and native trust evidence before promotion can be considered.
+
 ## Verdict
 
 **ACCEPT.** The schema-v2 fresh-install path, live client convergence, native

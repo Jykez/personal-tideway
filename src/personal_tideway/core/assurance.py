@@ -23,6 +23,7 @@ from personal_tideway.constants import (
 )
 from personal_tideway.core.basic_memory_installer import validate_isolated_executable
 from personal_tideway.core.basic_memory_runtime import get_basic_memory_layout
+from personal_tideway.core.behavioral_evidence import load_candidate_evidence
 from personal_tideway.exceptions import (
     BoundaryError,
     ConfigError,
@@ -167,14 +168,16 @@ def evaluate_client_assurance(
     rule_available = check_client_continuity_rule(cfg, client)
     skill_available = check_client_continuity_skill(cfg, client)
 
-    # Phase 4C-A implements structural hook provisioning, but NO behavioral client probe yet.
-    # Level must remain INSTRUCTED, MANUAL, or UNAVAILABLE; hooked is never emitted
-    # from structural evidence alone until a real quota-consuming behavioral probe is executed.
+    # A locally sealed candidate is integrity checked, but cannot authenticate
+    # native client delivery or trust review. Only a future native verifier may
+    # promote this level; structural hook state and candidate records do not.
     hook_verified = False
 
     if rule_available and skill_available:
         level = ContinuityAssuranceLevel.INSTRUCTED
         details = "Managed continuity rule and skill available"
+        if load_candidate_evidence(cfg, client) is not None:
+            details += "; current candidate probe record is not native-client attestation"
     else:
         level = ContinuityAssuranceLevel.MANUAL
         if not rule_available and not skill_available:
