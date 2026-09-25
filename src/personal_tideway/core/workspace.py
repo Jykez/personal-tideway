@@ -60,7 +60,7 @@ DEFAULT_CONTINUITY_RULE_TEMPLATE = """# Personal Tideway Continuity Policy
    - Consult the `continuity` skill for command usage, schema parameters, character budgets, and structured checkpoint templates.
 """
 
-DEFAULT_CONTINUITY_SKILL_TEMPLATE = """# Personal Tideway Continuity Skill
+LEGACY_CONTINUITY_SKILL_TEMPLATE = """# Personal Tideway Continuity Skill
 
 ## Description
 Shared continuity skill for Codex and Antigravity. Guides context retrieval and bounded, idempotent project checkpoints via the Personal Tideway CLI.
@@ -178,6 +178,13 @@ EOF
 - **Template Customization**: Existing user modifications to this skill and policy are preserved across `ptw init` and `ptw sync`.
 """
 
+DEFAULT_CONTINUITY_SKILL_TEMPLATE = """---
+name: continuity
+description: Retrieve bounded project context and persist concise Personal Tideway checkpoints.
+---
+
+""" + LEGACY_CONTINUITY_SKILL_TEMPLATE
+
 
 def init_workspace(cfg: PersonalTidewayConfig, *, dry_run: bool = False) -> list[str]:
     """Инициализировать v2 workspace или вернуть точный план без записи."""
@@ -267,6 +274,13 @@ def init_workspace(cfg: PersonalTidewayConfig, *, dry_run: bool = False) -> list
     for file_path in canonical_files:
         if not file_path.exists():
             actions.append(f"create_file:{symbolic_path(file_path)}")
+    if continuity_skill_md.is_file():
+        try:
+            existing_skill = continuity_skill_md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            raise ConfigError(f"File target '{continuity_skill_md}' cannot be read safely.") from None
+        if existing_skill == LEGACY_CONTINUITY_SKILL_TEMPLATE:
+            actions.append(f"upgrade_file:{symbolic_path(continuity_skill_md)}")
     if cfg.secrets_env.is_file() and stat.S_IMODE(cfg.secrets_env.stat().st_mode) != 0o600:
         actions.append("set_mode:secrets.env:0600")
 
@@ -313,8 +327,12 @@ def init_workspace(cfg: PersonalTidewayConfig, *, dry_run: bool = False) -> list
     if not continuity_rule_path.exists():
         atomic_write_text(continuity_rule_path, DEFAULT_CONTINUITY_RULE_TEMPLATE)
 
-    # 7. Initialize canonical continuity skill if missing (preserve existing user edits)
-    if not continuity_skill_md.exists():
+    # 7. Initialize the canonical continuity skill. Upgrade only the exact
+    # legacy managed template; preserve every user-modified variant byte-for-byte.
+    if (
+        not continuity_skill_md.exists()
+        or continuity_skill_md.read_text(encoding="utf-8") == LEGACY_CONTINUITY_SKILL_TEMPLATE
+    ):
         atomic_write_text(continuity_skill_md, DEFAULT_CONTINUITY_SKILL_TEMPLATE)
 
     return actions

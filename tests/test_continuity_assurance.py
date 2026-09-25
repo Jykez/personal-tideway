@@ -28,7 +28,10 @@ from personal_tideway.core.assurance import (
     is_backend_usable,
 )
 from personal_tideway.core.basic_memory_runtime import get_basic_memory_layout
-from personal_tideway.core.workspace import init_workspace
+from personal_tideway.core.workspace import (
+    LEGACY_CONTINUITY_SKILL_TEMPLATE,
+    init_workspace,
+)
 from personal_tideway.models import ContinuityAssuranceLevel, SkillInfo
 from personal_tideway.utils import atomic_write_text
 
@@ -72,6 +75,8 @@ def test_fresh_init_provisions_canonical_policy_and_skill(tmp_path: Path):
     assert valid, f"Canonical skill is not valid: {reason}"
 
     skill_text = skill.skill_md_path.read_text(encoding="utf-8")
+    assert skill_text.startswith("---\nname: continuity\n")
+    assert "description:" in skill_text.split("---", 2)[1]
     assert "Personal Tideway Continuity Skill" in skill_text
     assert "ptw context show" in skill_text
     assert "ptw context search" in skill_text
@@ -118,6 +123,23 @@ def test_init_idempotency_and_non_overwrite_of_user_edits(tmp_path: Path):
     assert skill_file.read_text(encoding="utf-8") == custom_skill
     assert rule_file.stat().st_mtime_ns == mtime_rule_before
     assert skill_file.stat().st_mtime_ns == mtime_skill_before
+
+
+def test_init_upgrades_only_exact_legacy_continuity_skill(tmp_path: Path):
+    """The shipped pre-frontmatter template is upgraded without replacing user edits."""
+    cfg = PersonalTidewayConfig.resolve(home=tmp_path / "ptw_upgrade")
+    init_workspace(cfg)
+    skill_file = cfg.skills_shared / CONTINUITY_SKILL_NAME / "SKILL.md"
+    atomic_write_text(skill_file, LEGACY_CONTINUITY_SKILL_TEMPLATE)
+
+    dry_actions = init_workspace(cfg, dry_run=True)
+    assert "upgrade_file:skills/shared/continuity/SKILL.md" in dry_actions
+    assert skill_file.read_text(encoding="utf-8") == LEGACY_CONTINUITY_SKILL_TEMPLATE
+
+    init_workspace(cfg)
+    upgraded = skill_file.read_text(encoding="utf-8")
+    assert upgraded.startswith("---\nname: continuity\n")
+    assert upgraded.endswith(LEGACY_CONTINUITY_SKILL_TEMPLATE)
 
 
 def test_policy_and_skill_bounded_and_no_native_hook_claims(tmp_path: Path):

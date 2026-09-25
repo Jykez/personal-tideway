@@ -30,6 +30,7 @@ from personal_tideway.adapters.codex import (
 from personal_tideway.adapters.codex import (
     inspect_hooks_path as inspect_codex_hooks_path,
 )
+from personal_tideway.backup import create_backup_if_changed
 from personal_tideway.cli.bridge import format_context_result, resolve_cli_project
 from personal_tideway.config import PersonalTidewayConfig
 from personal_tideway.constants import (
@@ -60,7 +61,7 @@ from personal_tideway.exceptions import (
     ValidationError,
 )
 from personal_tideway.models import AgyHookEvidence, CodexHookEvidence, HookStatus
-from personal_tideway.utils import ensure_safe_path
+from personal_tideway.utils import atomic_write_text, ensure_safe_path
 
 
 def get_canonical_agy_hook_entry() -> dict[str, Any]:
@@ -608,6 +609,14 @@ def check_codex_config_for_inline_hooks(config_path: Path) -> str | None:
     except (OSError, UnicodeDecodeError, ParseError, RecursionError):
         return conflict_msg
 
+    features_table = doc.get("features")
+    if features_table is not None and not isinstance(features_table, dict):
+        return f"Codex config file {config_path} has an invalid top-level features value."
+    if isinstance(features_table, dict):
+        hooks_feature = features_table.get("hooks")
+        if hooks_feature is not None and type(hooks_feature) is not bool:
+            return f"Codex config file {config_path} has a non-boolean features.hooks value."
+
     hooks_table = doc.get("hooks")
     if hooks_table is None:
         return None
@@ -633,6 +642,55 @@ def check_codex_config_for_inline_hooks(config_path: Path) -> str | None:
         return conflict_msg
 
     return None
+
+
+def is_codex_hooks_feature_enabled(config_path: Path) -> bool:
+    """Return whether Codex's experimental hooks runtime is explicitly enabled."""
+    conflict = check_codex_config_for_inline_hooks(config_path)
+    if conflict:
+        raise ValidationError(conflict)
+    if not config_path.exists():
+        return False
+    try:
+        doc = tomlkit.parse(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ParseError, RecursionError):
+        raise ValidationError(f"Codex config file {config_path} is malformed or unreadable.") from None
+    features = doc.get("features")
+    return isinstance(features, dict) and features.get("hooks") is True
+
+
+def set_codex_hooks_feature_enabled(
+    config_path: Path,
+    backups_dir: Path,
+    *,
+    dry_run: bool = False,
+) -> bool:
+    """Enable ``features.hooks`` while preserving unrelated TOML content."""
+    if is_codex_hooks_feature_enabled(config_path):
+        return False
+
+    if config_path.exists():
+        content = config_path.read_text(encoding="utf-8")
+        doc = tomlkit.parse(content)
+    else:
+        content = ""
+        doc = tomlkit.document()
+
+    features = doc.get("features")
+    if features is None:
+        features = tomlkit.table()
+        doc["features"] = features
+    if not isinstance(features, dict):
+        raise ValidationError(f"Codex config file {config_path} has an invalid top-level features value.")
+    features["hooks"] = True
+    new_content = tomlkit.dumps(doc)
+    if new_content == content:
+        return False
+    if not dry_run:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        create_backup_if_changed(config_path, new_content, backups_dir, dry_run=False)
+        atomic_write_text(config_path, new_content)
+    return True
 
 
 def count_codex_command_occurrences(obj: Any) -> int:
@@ -774,6 +832,19 @@ def get_codex_hook_status(cfg: PersonalTidewayConfig) -> CodexHookEvidence:
         session_start = hooks_obj["SessionStart"]
         canonical_matches = [g for g in session_start if is_canonical_codex_hook_group(g)]
         if len(canonical_matches) == 1:
+            if not is_codex_hooks_feature_enabled(cfg.codex_config):
+                return CodexHookEvidence(
+                    status=HookStatus.NOT_INSTALLED,
+                    event=CODEX_HOOK_EVENT,
+                    command=CODEX_HOOK_COMMAND,
+                    target_path=hooks_path,
+                    installed=False,
+                    details=(
+                        "Managed SessionStart hook definition is canonical, but Codex runtime hooks are disabled "
+                        f"because features.hooks is not true in {cfg.codex_config}."
+                    ),
+                    conflict_reason=None,
+                )
             return CodexHookEvidence(
                 status=HookStatus.INSTALLED,
                 event=CODEX_HOOK_EVENT,
@@ -829,12 +900,27 @@ def plan_codex_hook(cfg: PersonalTidewayConfig) -> dict[str, Any]:
                 "message": f"CONFLICT: Conflicting hook configuration detected for Codex: {e}. Installation blocked.",
                 "conflict_reason": str(e),
             }
-        action = "update" if file_exists else "create"
-        msg = (
-            f"Would add managed SessionStart hook group to existing {hooks_path} (preserving unrelated definitions)."
-            if file_exists
-            else f"Would create {hooks_path} and install managed SessionStart hook group."
-        )
+        canonical_definition_present = False
+        if file_exists:
+            try:
+                existing_doc = get_codex_adapter(cfg).read_hooks()
+                existing_groups = existing_doc.get("hooks", {}).get("SessionStart", [])
+                canonical_definition_present = (
+                    isinstance(existing_groups, list)
+                    and sum(is_canonical_codex_hook_group(group) for group in existing_groups) == 1
+                )
+            except ValidationError:
+                canonical_definition_present = False
+        if canonical_definition_present:
+            action = "enable"
+            msg = f"Would enable Codex runtime hooks in {cfg.codex_config}; canonical {hooks_path} is unchanged."
+        else:
+            action = "update" if file_exists else "create"
+            msg = (
+                f"Would add managed SessionStart hook group to existing {hooks_path} and enable Codex runtime hooks."
+                if file_exists
+                else f"Would create {hooks_path}, install managed SessionStart hook group, and enable Codex runtime hooks."
+            )
         return {
             "client": CLIENT_CODEX,
             "target_path": str(hooks_path),
@@ -863,7 +949,7 @@ def install_codex_hook(
 
     evidence = get_codex_hook_status(cfg)
     if evidence.status == HookStatus.INSTALLED:
-        return False, f"Managed SessionStart hook is already installed in {hooks_path} (unchanged)."
+        return False, f"Managed SessionStart hook is already installed and enabled in {hooks_path} (unchanged)."
     elif evidence.status == HookStatus.CONFLICT:
         raise ValidationError(
             f"Conflicting hook configuration detected for Codex in {hooks_path}: {evidence.details}; refusing to overwrite."
@@ -883,12 +969,21 @@ def install_codex_hook(
     if not isinstance(new_doc["hooks"]["SessionStart"], list):
         raise ValidationError(f"Codex hooks file {hooks_path} field 'hooks.SessionStart' must be a JSON array.")
 
-    new_doc["hooks"]["SessionStart"].append(get_canonical_codex_hook_group())
+    session_start = new_doc["hooks"]["SessionStart"]
+    canonical_present = any(is_canonical_codex_hook_group(group) for group in session_start)
+    if not canonical_present:
+        session_start.append(get_canonical_codex_hook_group())
 
     prefix = "[DRY RUN] " if dry_run else ""
-    changed = adapter.write_hooks(new_doc, dry_run=dry_run)
+    hooks_changed = adapter.write_hooks(new_doc, dry_run=dry_run)
+    feature_changed = set_codex_hooks_feature_enabled(
+        cfg.codex_config,
+        cfg.backups_dir,
+        dry_run=dry_run,
+    )
+    changed = hooks_changed or feature_changed
     action_verb = "Would install" if dry_run else "Installed"
-    return changed, f"{prefix}{action_verb} managed SessionStart hook in {hooks_path}."
+    return changed, f"{prefix}{action_verb} managed SessionStart hook in {hooks_path} and enabled Codex runtime hooks."
 
 
 def remove_codex_hook(
@@ -914,16 +1009,19 @@ def remove_codex_hook(
         return False, f"{prefix}Managed SessionStart hook is not installed in {hooks_path} (unchanged)."
 
     evidence = get_codex_hook_status(cfg)
-    if evidence.status == HookStatus.NOT_INSTALLED:
-        prefix = "[DRY RUN] " if dry_run else ""
-        return False, f"{prefix}Managed SessionStart hook is not installed in {hooks_path} (unchanged)."
-    elif evidence.status == HookStatus.CONFLICT:
+    if evidence.status == HookStatus.CONFLICT:
         raise ValidationError(
             f"Conflicting hook configuration detected for Codex in {hooks_path}: {evidence.details}; refusing to remove."
         )
 
     adapter = get_codex_adapter(cfg)
     doc = adapter.read_hooks()
+    session_start_groups = doc.get("hooks", {}).get("SessionStart", [])
+    if not isinstance(session_start_groups, list) or not any(
+        is_canonical_codex_hook_group(group) for group in session_start_groups
+    ):
+        prefix = "[DRY RUN] " if dry_run else ""
+        return False, f"{prefix}Managed SessionStart hook is not installed in {hooks_path} (unchanged)."
 
     new_doc = copy.deepcopy(doc)
     session_start = new_doc.get("hooks", {}).get("SessionStart", [])

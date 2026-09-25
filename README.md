@@ -8,9 +8,11 @@ project context, reusable skills, rules, and MCP definitions without copying
 whole conversations or scattering metadata across source repositories.
 
 > **Development status:** pre-alpha. The repository contains a tested
-> configuration and synchronization foundation, but the seamless project
-> memory workflow is not complete. Do not point this development version at
-> live client configuration without reviewing a dry run and backup plan.
+> configuration and synchronization foundation, and an explicit live
+> checkpoint handoff has been verified between Codex and agy. Durable automated
+> assurance, background synchronization, and public release packaging are not
+> complete. Review a dry run and backup plan before changing live client
+> configuration.
 
 ## What it should feel like
 
@@ -61,23 +63,22 @@ Still under construction:
 - durable live client hook assurance verification (evaluator reports `instructed`, `manual`, or `unavailable`; disposable capability probe does not auto-promote live assurance without active installed/enabled/trust/digest evidence);
 - automatic stop/exit lifecycle hook capture (clients currently expose no native stop event; checkpointing remains explicit/instructed via CLI);
 - continuous live background synchronization for rules, skills, and MCP;
-- live migration and rollback from the legacy workspace;
 - public alpha installer, onboarding, CI, and release packaging.
 
 See [ROADMAP.md](ROADMAP.md) for the delivery order.
 
 ## Codex lifecycle integration
 
-Personal Tideway integrates with Codex CLI (0.152.0) using its native hook contract ([Codex hooks documentation](https://learn.chatgpt.com/docs/hooks)):
+Personal Tideway integrates with Codex CLI (live-tested with 0.155.1) using its native hook contract ([Codex hooks documentation](https://learn.chatgpt.com/docs/hooks)):
 
 - **Lifecycle commands:** `ptw hook plan --client codex`, `ptw hook install --client codex`, `ptw hook status --client codex`, and `ptw hook remove --client codex` (`--dry-run` is supported for `install` and `remove`; default client remains `agy`).
-- **Hook target:** Managed hooks live in `$CODEX_HOME/hooks.json`. An optional `--codex-hooks` flag accepts paths strictly bounded within `$CODEX_HOME` with lexical symlink traversal validation.
+- **Hook target:** Managed hooks live in `$CODEX_HOME/hooks.json`, and installation enables the required `features.hooks = true` setting in `$CODEX_HOME/config.toml` while preserving unrelated TOML. An optional `--codex-hooks` flag accepts paths strictly bounded within `$CODEX_HOME` with lexical symlink traversal validation.
 - **Event contract:** Listens exclusively to the single `SessionStart` event with matcher regex `^(startup|resume|clear|compact)$`, executing handler `ptw hook codex-session-start`.
 - **Parsing and serialization safety:** Enforces a strict 256 KiB file limit for JSON and TOML hook files, while the handler stdin payload enforces a 64 KiB cap; both enforce a maximum JSON recursion depth of 64 (TOML is parser-bounded with standard parser exceptions and no explicit depth limit). Unrelated JSON content is preserved semantically. Hook file writes are atomic, and backups are created before modifications. The installer performs append/remove only on its exact managed group. Duplicate entries, modified managed entries, and inline collision with existing Tideway commands fail closed.
 - **Layering and trust model:** Codex hook layers are additive (not override); matching hook commands can run concurrently. Project-level hooks only run in trusted projects. User-level hooks require manual approval via `/hooks` or initial trust review in the Codex TUI. The installer never writes trust hashes and never bypasses client security prompts. Explicitly disabled hooks or managed-only policies may prevent hook execution.
 - **Handler boundaries:** The `codex-session-start` handler only serves strictly registered projects (no automatic project registration), ignores conversation transcript dumps, and executes exactly one bounded context retrieval (max 5 items, 8,000 characters), returning a `hookSpecificOutput` payload with `additionalContext`.
-- **Assurance and behavioral probe status:** Structural presence in `ptw status` or `ptw doctor` reports assurance strictly among `instructed`, `manual`, or `unavailable` (`hook_verified` remains `False`; no `incapable` level exists in the evaluator). The isolated disposable capability probe passed on 2026-09-15 without security bypass (see [CODEX_HOOK_PROBE.md](docs/CODEX_HOOK_PROBE.md)), validating the negative control (`NO_INITIAL_CONTEXT`), TUI trust review, Codex-computed digest, single backend retrieval, and exact model marker `PTW_CODEX_4CB_92E8B6D1` for `startup`. Live configs were not changed, and disposable success does not automatically promote live assurance to `hooked`.
-- **Next steps:** Stop/checkpoint lifecycle integration remains a separate slice. Sanitized migration fixtures are covered, but no live migration, live rollback, or public alpha is claimed yet.
+- **Assurance and behavioral probe status:** Structural presence in `ptw status` or `ptw doctor` reports assurance strictly among `instructed`, `manual`, or `unavailable` (`hook_verified` remains `False`; no `incapable` level exists in the evaluator). The isolated disposable capability probe passed on 2026-09-15 without security bypass (see [CODEX_HOOK_PROBE.md](docs/CODEX_HOOK_PROBE.md)). On 2026-09-24, a backed-up live acceptance passed an exact hidden-marker handoff from Codex to agy and back through native initial-context hooks, including native Codex trust review and a final normal Codex launch without feature or trust bypass flags (see [MIGRATION_5E_LIVE_ACCEPTANCE.md](docs/MIGRATION_5E_LIVE_ACCEPTANCE.md)). This behavioral success still does not auto-promote assurance to `hooked` because the evaluator does not yet persist and validate durable probe evidence.
+- **Next steps:** Durable behavioral evidence and stop/checkpoint lifecycle integration remain separate slices, followed by public-alpha packaging.
 
 ## Migration recovery workflow
 
@@ -96,9 +97,12 @@ ptw migrate rollback <bundle-id-or-manifest-path>
 Rollback validates the retained manifest and backup hashes before mutation,
 restores original bytes and modes, removes transaction-created destinations,
 and preserves newly written central-memory files. Add `--json` to any command
-when machine-readable evidence is required. This workflow is covered only with
-generated fixtures at this stage; do not run it against live client homes
-without a separately reviewed backup and acceptance plan.
+when machine-readable evidence is required. Transactional apply and rollback
+are covered with generated fixtures. The 2026-09-24 live acceptance used the
+backed-up fresh-install path because the current workspace was already schema
+v2 and `ptw migrate plan` returned `not_required`; no live rollback was needed
+or executed. Do not run migration against live client homes without a
+separately reviewed backup and acceptance plan.
 
 ## Data layout
 

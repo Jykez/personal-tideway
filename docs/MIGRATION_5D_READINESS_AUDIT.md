@@ -584,3 +584,12 @@ The final local rebuild completed successfully. Its wheel SHA-256 is
 `0774c49191901228dd4e15ee9c29fc8eb1d122ad69d8ddbebcc67331ce5804eb`;
 wheel archives are timestamp-sensitive, so this later hash does not replace the
 earlier reviewed artifact hash recorded above.
+
+## Migration 5E follow-up
+
+The historical boundaries above remain accurate for the 5D acceptance date.
+On 2026-09-24, the separately approved Migration 5E live acceptance completed
+the backed-up schema-v2 fresh-install path and verified a real hidden-marker
+handoff from Codex to agy and back. The implementation corrections, exact live
+evidence, backup hashes, and remaining durable-assurance boundary are recorded
+in [MIGRATION_5E_LIVE_ACCEPTANCE.md](MIGRATION_5E_LIVE_ACCEPTANCE.md).

@@ -57,6 +57,7 @@ from personal_tideway.core.hooks import (
     handle_codex_session_start,
     install_codex_hook,
     is_canonical_codex_hook_group,
+    is_codex_hooks_feature_enabled,
     plan_codex_hook,
     remove_codex_hook,
 )
@@ -152,6 +153,7 @@ def test_codex_install_fresh_lifecycle(personal_tideway_config: PersonalTidewayC
     assert changed is True
     assert "Installed managed SessionStart hook" in msg
     assert hooks_file.is_file()
+    assert is_codex_hooks_feature_enabled(cfg.codex_config) is True
 
     doc = json.loads(hooks_file.read_text(encoding="utf-8"))
     assert "hooks" in doc
@@ -193,6 +195,34 @@ def test_codex_install_dry_run_zero_mutation(personal_tideway_config: PersonalTi
     assert changed is True
     assert "[DRY RUN]" in msg
     assert not cfg.codex_hooks.exists()
+    assert not cfg.codex_config.exists()
+
+
+def test_codex_install_enables_runtime_without_duplicate_hook(
+    personal_tideway_config: PersonalTidewayConfig,
+):
+    """A canonical definition is not installed until features.hooks is enabled."""
+    cfg = personal_tideway_config
+    cfg.codex_hooks.parent.mkdir(parents=True, exist_ok=True)
+    cfg.codex_hooks.write_text(
+        json.dumps({"hooks": {"SessionStart": [get_canonical_codex_hook_group()]}}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    cfg.codex_config.write_text('# keep this comment\n[features]\nmemories = true\n', encoding="utf-8")
+
+    before = get_codex_hook_status(cfg)
+    assert before.status == HookStatus.NOT_INSTALLED
+    assert before.installed is False
+    assert "features.hooks" in before.details
+    assert plan_codex_hook(cfg)["action"] == "enable"
+
+    changed, _msg = install_codex_hook(cfg, dry_run=False)
+    assert changed is True
+    assert is_codex_hooks_feature_enabled(cfg.codex_config) is True
+    assert "# keep this comment" in cfg.codex_config.read_text(encoding="utf-8")
+    doc = json.loads(cfg.codex_hooks.read_text(encoding="utf-8"))
+    assert len(doc["hooks"]["SessionStart"]) == 1
+    assert get_codex_hook_status(cfg).status == HookStatus.INSTALLED
 
 
 def test_codex_install_preserves_unrelated_hooks_and_order(personal_tideway_config: PersonalTidewayConfig):
@@ -265,6 +295,7 @@ def test_codex_remove_canonical_group(personal_tideway_config: PersonalTidewayCo
 
     status = get_codex_hook_status(cfg)
     assert status.status == HookStatus.NOT_INSTALLED
+    assert is_codex_hooks_feature_enabled(cfg.codex_config) is False
 
 
 def test_codex_remove_idempotency_zero_mutation(personal_tideway_config: PersonalTidewayConfig):
@@ -420,6 +451,23 @@ def test_codex_config_toml_malformed_is_conflict(personal_tideway_config: Person
     status = get_codex_hook_status(cfg)
     assert status.status == HookStatus.CONFLICT
     assert "malformed or unreadable" in status.details
+
+
+def test_codex_config_non_boolean_hooks_feature_is_conflict(
+    personal_tideway_config: PersonalTidewayConfig,
+):
+    """Installer refuses to overwrite an ambiguous non-boolean feature value."""
+    cfg = personal_tideway_config
+    cfg.codex_config.parent.mkdir(parents=True, exist_ok=True)
+    original = '[features]\nhooks = "sometimes"\n'
+    cfg.codex_config.write_text(original, encoding="utf-8")
+
+    status = get_codex_hook_status(cfg)
+    assert status.status == HookStatus.CONFLICT
+    assert "non-boolean features.hooks" in status.details
+    with pytest.raises(ValidationError, match="Conflicting Codex configuration"):
+        install_codex_hook(cfg, dry_run=False)
+    assert cfg.codex_config.read_text(encoding="utf-8") == original
 
 
 # ============================================================================

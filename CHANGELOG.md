@@ -6,6 +6,26 @@ Russian. Dates use `YYYY-MM-DD`.
 Заметки о версиях соответствуют версии пакета и ведутся на английском и
 русском языках. Даты записываются в формате `YYYY-MM-DD`.
 
+## [0.1.0.dev13] - 2026-09-24
+
+### English
+
+- Completed Migration 5E live acceptance for the schema-v2 fresh-install path with restricted backups and a real Codex-to-agy-to-Codex hidden-marker handoff.
+- Corrected Codex hook installation to enable `features.hooks = true` while preserving unrelated TOML; status now reports a canonical but runtime-disabled definition as `not-installed`, and retrying installation enables it without duplicating `hooks.json` entries.
+- Added valid YAML frontmatter to the managed `continuity` skill and an exact-legacy-only upgrade path that preserves every user-modified template.
+- Recorded native Codex hook review and trust, successful agy `PreInvocation` delivery with an explicit workspace, and successful normal Codex `SessionStart` delivery without feature or trust bypass flags in [MIGRATION_5E_LIVE_ACCEPTANCE.md](docs/MIGRATION_5E_LIVE_ACCEPTANCE.md).
+- Kept automated assurance truthful: live handoff behavior is verified, but `ptw status` remains `instructed` until probe time, enabled state, trust digest, and behavioral evidence are persisted and validated as a durable machine-readable record.
+- Verification: full `684 passed` suite, focused Ruff and mypy, `git diff --check`, package build, converged sync dry-run, and cross-client projection parity `in_sync`.
+
+### Русский
+
+- Завершена живая приёмка Migration 5E для fresh-install пути schema v2 с ограниченными backup и реальной передачей скрытого маркера Codex-to-agy-to-Codex.
+- Исправлена установка Codex hook: теперь она включает `features.hooks = true` с сохранением постороннего TOML; каноническая, но отключённая в runtime запись отображается как `not-installed`, а повторная установка включает её без дублирования записей `hooks.json`.
+- В управляемый skill `continuity` добавлен корректный YAML frontmatter и безопасный upgrade только для побайтно совпадающего прежнего шаблона с сохранением любых пользовательских изменений.
+- В [MIGRATION_5E_LIVE_ACCEPTANCE.md](docs/MIGRATION_5E_LIVE_ACCEPTANCE.md) зафиксированы нативное review/trust Codex, успешная доставка через agy `PreInvocation` с явно заданным workspace и успешная доставка через обычный Codex `SessionStart` без флагов обхода feature или trust.
+- Автоматический assurance остаётся честным: живой handoff подтверждён поведенчески, но `ptw status` сохраняет `instructed`, пока время зонда, enabled-state, trust digest и behavioral evidence не сохраняются и не проверяются как долговечный машиночитаемый артефакт.
+- Проверки: полный набор `684 passed`, focused Ruff и mypy, `git diff --check`, сборка пакета, сходящийся sync dry-run и cross-client projection parity `in_sync`.
+
 ## [0.1.0.dev10] - 2026-09-17
 
 ### English
